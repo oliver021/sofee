@@ -1,0 +1,29 @@
+{
+  "name": "@sofee/web",
+  "private": true,
+  "version": "0.0.0",
+  "description": "Sofee \u2014 the Vite + Svelte 5 app shell.",
+  "type": "module",
+  "license": "UNLICENSED",
+  "scripts": {
+    "predev": "npm run build --workspace=@sofee/tokens",
+    "dev": "vite",
+    "prebuild": "npm run build --workspace=@sofee/tokens",
+    "build": "vite build",
+    "preview": "vite preview",
+    "typecheck": "svelte-check --tsconfig ./tsconfig.json --fail-on-warnings"
+  },
+  "dependencies": {
+    "@sofee/core": "*",
+    "@sofee/icons": "*",
+    "@sofee/tokens": "*",
+    "@sofee/ui": "*",
+    "svelte": "^5.57.0"
+  },
+  "devDependencies": {
+    "@sveltejs/vite-plugin-svelte": "^7.3.0",
+    "svelte-check": "^4.7.6",
+    "typescript": "^6.0.3",
+    "vite": "^8.3.0"
+  }
+}

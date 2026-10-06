@@ -1,0 +1,8 @@
+{
+  "name": "@sofee/config",
+  "private": true,
+  "version": "0.0.0",
+  "description": "Shared tsconfig / eslint / prettier base consumed by every other workspace via relative paths.",
+  "type": "module",
+  "license": "UNLICENSED"
+}

@@ -1,0 +1,266 @@
+/* packages/tokens' generated custom properties + the semantic scale. */
+@import '@sofee/tokens/css';
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--p-bg);
+  color: var(--p-ink);
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+  font-size: 15px;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+#app {
+  height: 100dvh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+a {
+  color: inherit;
+}
+
+::selection {
+  background: color-mix(in oklab, var(--p-acc) 35%, transparent);
+}
+
+.tabular-nums {
+  font-variant-numeric: tabular-nums;
+}
+
+/* Visible, on-brand focus ring (ux-foundations.md §8). */
+:focus-visible {
+  outline: 2px solid var(--p-acc);
+  outline-offset: 1px;
+}
+
+/* --- Admin panel primitives (reuse from every view; tokens only). --- */
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 7px 14px;
+  border: 1px solid var(--p-line);
+  border-radius: 8px;
+  background: var(--p-surf-2);
+  color: var(--p-ink);
+  font: inherit;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.btn:hover:not(:disabled) {
+  background: var(--p-hi);
+}
+
+.btn:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
+.btn.primary {
+  border-color: var(--p-acc);
+  background: var(--p-acc);
+  color: var(--p-bg);
+}
+
+.btn.primary:hover:not(:disabled) {
+  filter: brightness(1.08);
+}
+
+.btn.ghost {
+  background: transparent;
+}
+
+.btn.danger {
+  border-color: var(--sem-critical);
+  background: var(--sem-critical);
+  color: var(--sem-critical-ink);
+}
+
+.btn.danger:hover:not(:disabled) {
+  filter: brightness(1.08);
+}
+
+.input {
+  width: 100%;
+  padding: 8px 10px;
+  border: 1px solid var(--p-line-2);
+  border-radius: 8px;
+  background: var(--p-surf-2);
+  color: var(--p-ink);
+  font: inherit;
+}
+
+.input:focus-visible {
+  outline: 2px solid var(--p-acc);
+  outline-offset: 1px;
+}
+
+.input::placeholder {
+  color: var(--p-mut);
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.field-label {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--p-mut);
+}
+
+.table-wrap {
+  overflow-x: auto;
+  border: 1px solid var(--p-line);
+  border-radius: 12px;
+  background: var(--p-surf);
+}
+
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 14px;
+}
+
+.table th,
+.table td {
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--p-line);
+  text-align: left;
+  vertical-align: middle;
+  white-space: nowrap;
+}
+
+.table th {
+  color: var(--p-mut);
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.table tbody tr:last-child td {
+  border-bottom: none;
+}
+
+.table tbody tr:hover {
+  background: color-mix(in oklab, var(--p-hi) 60%, transparent);
+}
+
+.badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.badge.ok {
+  background: color-mix(in oklab, var(--sem-success) 18%, transparent);
+  color: var(--sem-success-ink);
+}
+
+.badge.off {
+  background: color-mix(in oklab, var(--p-mut) 18%, transparent);
+  color: var(--p-mut);
+}
+
+.badge.danger {
+  background: color-mix(in oklab, var(--sem-critical) 16%, transparent);
+  color: var(--sem-critical-ink);
+}
+
+.row-actions {
+  display: inline-flex;
+  gap: 6px;
+}
+
+.row-actions .icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border: none;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--p-mut);
+  cursor: pointer;
+}
+
+.row-actions .icon-btn:hover:not(:disabled) {
+  background: var(--p-hi);
+  color: var(--p-ink);
+}
+
+.row-actions .icon-btn:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.error-text {
+  color: var(--sem-critical-ink);
+  font-size: 13px;
+}
+
+.muted {
+  color: var(--p-mut);
+}
+
+.strong {
+  font-weight: 600;
+}
+
+.mono {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 13px;
+}
+
+.view-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 20px;
+}
+
+.view-head h1 {
+  margin: 0;
+  font-size: 20px;
+  font-weight: 700;
+}
+
+.empty {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 40px;
+  border: 1px dashed var(--p-line-2);
+  border-radius: 12px;
+  color: var(--p-mut);
+}
+
+.empty p {
+  margin: 0;
+}

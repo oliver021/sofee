@@ -1,0 +1,74 @@
+/* packages/tokens' generated custom properties — the six palettes, the dotted-field formula,
+   spacing/radius/motion, and the semantic scale. See packages/tokens/src/build.ts. */
+@import '@sofee/tokens/css';
+/* OverlayScrollbars plus Sofee's palette-aware theme for it. */
+@import '@sofee/ui/styles/scrollbars.css';
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--p-bg);
+  color: var(--p-ink);
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+  font-size: 15px;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+#app {
+  height: 100dvh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+a {
+  color: inherit;
+}
+
+::selection {
+  background: color-mix(in oklab, var(--p-acc) 35%, transparent);
+}
+
+/* design-system.md §8: "Digits that stack in a column take font-variant-numeric: tabular-nums." */
+.tabular-nums {
+  font-variant-numeric: tabular-nums;
+}
+
+/* Global safety net; most interactive components already set this themselves so the ring
+   matches their own border-radius, but anything missed still gets a visible, on-brand focus
+   ring rather than the browser default (ux-foundations.md §8: "Focus: Always visible, never
+   removed, 2px offset ring from the palette accent"). */
+:focus-visible {
+  outline: 2px solid var(--p-acc);
+  outline-offset: 2px;
+}
+
+/* ux-foundations.md §8: "Skip link: First tab stop jumps to the composer." */
+.skip-link {
+  position: fixed;
+  z-index: 100;
+  left: var(--space-3);
+  top: -100px;
+  padding: var(--space-2) var(--space-4);
+  border-radius: var(--radius-icon-btn);
+  border: 1px solid var(--p-line);
+  background: var(--p-surf-2);
+  color: var(--p-ink);
+  text-decoration: none;
+  transition: top var(--motion-menu-duration) var(--motion-menu-easing);
+}
+
+.skip-link:focus-visible {
+  top: var(--space-3);
+}

@@ -1,0 +1,42 @@
+{
+  "name": "sofee",
+  "private": true,
+  "version": "0.0.0",
+  "description": "Sofee — a learning and research assistant frontend.",
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "postinstall": "npm run build --workspace=@sofee/tokens",
+    "dev": "npm run dev --workspace=@sofee/web",
+    "dev:admin": "npm run dev --workspace=@sofee/admin",
+    "build": "npm run build --workspace=@sofee/tokens && npm run build --workspace=@sofee/web",
+    "build:admin": "npm run build --workspace=@sofee/tokens && npm run build --workspace=@sofee/admin",
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "test": "npm run test --workspace=@sofee/core",
+    "test:watch": "npm run test:watch --workspace=@sofee/core"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "@types/node": "^26.6.0",
+    "eslint": "^10.10.0",
+    "eslint-config-prettier": "^10.1.8",
+    "eslint-plugin-svelte": "^3.23.0",
+    "globals": "^17.12.0",
+    "prettier": "^3.9.6",
+    "prettier-plugin-svelte": "^4.1.1",
+    "svelte": "^5.57.0",
+    "svelte-eslint-parser": "^1.8.1",
+    "typescript": "^6.0.3",
+    "typescript-eslint": "^8.70.0"
+  }
+}

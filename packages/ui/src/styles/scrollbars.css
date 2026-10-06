@@ -1,0 +1,49 @@
+@import 'overlayscrollbars/overlayscrollbars.css';
+
+/**
+ * Sofee's scrollbar theme. Every colour is mixed from the active palette's ink, so the
+ * scrollbar belongs to whichever of the six palettes is on without a single per-palette rule.
+ * Semi-transparent throughout: it sits over the dotted field and the gradient, and an opaque
+ * handle would punch a hole in both.
+ */
+.os-theme-sofee {
+  --os-size: 10px;
+  --os-padding-perpendicular: 2px;
+  --os-padding-axis: 4px;
+
+  --os-track-border-radius: var(--radius-capsule);
+  --os-track-bg: transparent;
+  --os-track-bg-hover: color-mix(in oklab, var(--p-ink) 6%, transparent);
+  --os-track-bg-active: color-mix(in oklab, var(--p-ink) 8%, transparent);
+
+  --os-handle-border-radius: var(--radius-capsule);
+  --os-handle-bg: color-mix(in oklab, var(--p-ink) 20%, transparent);
+  --os-handle-bg-hover: color-mix(in oklab, var(--p-ink) 32%, transparent);
+  --os-handle-bg-active: color-mix(in oklab, var(--p-ink) 44%, transparent);
+  --os-handle-min-size: 36px;
+  /* The handle is slimmer than its hit area: 6px of visible bar, 10px you can actually grab. */
+  --os-handle-perpendicular-size: 60%;
+  --os-handle-perpendicular-size-hover: 100%;
+  --os-handle-perpendicular-size-active: 100%;
+  --os-handle-interactive-area-offset: 3px;
+}
+
+/* Overprint is the one printed palette: no translucent glass, and a hard-edged handle. */
+[data-palette='overprint'] .os-theme-sofee {
+  --os-handle-bg: color-mix(in oklab, var(--p-acc) 34%, transparent);
+  --os-handle-bg-hover: color-mix(in oklab, var(--p-acc) 52%, transparent);
+  --os-handle-bg-active: color-mix(in oklab, var(--p-acc) 68%, transparent);
+}
+
+.os-theme-sofee .os-scrollbar-handle {
+  transition:
+    background-color var(--motion-fast, 120ms) ease-out,
+    width var(--motion-fast, 120ms) ease-out,
+    height var(--motion-fast, 120ms) ease-out;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .os-theme-sofee .os-scrollbar-handle {
+    transition: none;
+  }
+}

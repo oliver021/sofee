@@ -1,0 +1,15 @@
+.git
+**/__pycache__
+*.pyc
+**/node_modules
+apps/web/*
+!apps/web/dist
+apps/admin/node_modules
+packages
+docs
+apps/api/.env
+apps/api/.venv
+apps/api/.pytest_cache
+apps/api/storage
+apps/api/tests
+apps/api/alembic/__pycache__

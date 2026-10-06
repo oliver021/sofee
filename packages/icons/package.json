@@ -1,0 +1,25 @@
+{
+  "name": "@sofee/icons",
+  "private": true,
+  "version": "0.0.0",
+  "description": "Sofee's icon set as Svelte components \u2014 20px, currentColor, 1.6 stroke, round caps and joins (design-system.md \u00a76).",
+  "type": "module",
+  "license": "UNLICENSED",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "svelte-check --tsconfig ./tsconfig.json --fail-on-warnings"
+  },
+  "peerDependencies": {
+    "svelte": "^5.0.0"
+  },
+  "devDependencies": {
+    "svelte": "^5.57.0",
+    "svelte-check": "^4.7.6",
+    "@sveltejs/vite-plugin-svelte": "^7.3.0",
+    "typescript": "^6.0.3"
+  }
+}

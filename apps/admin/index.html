@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="color-scheme" content="dark light" />
+    <title>Sofee Admin</title>
+    <script>
+      // Applied synchronously before first paint so the page never flashes the default
+      // palette — shares the user's stored palette with the main app (design-system.md §2).
+      (function () {
+        try {
+          var palette = localStorage.getItem('sofee:palette') || 'nocturne';
+          document.documentElement.dataset.palette = palette;
+        } catch (e) {
+          document.documentElement.dataset.palette = 'nocturne';
+        }
+      })();
+    </script>
+  </head>
+  <body>
+    <div id="app"></div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

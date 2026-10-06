@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="color-scheme" content="dark light" />
+    <title>Sofee</title>
+    <script>
+      // Applied synchronously, before first paint, so the page never flashes the default
+      // palette/locale before hydration — design-system.md §2: "Persisted per user. Default:
+      // nocturne." Wrapped in try/catch: localStorage throws in some contexts (private
+      // browsing, sandboxed iframes, disabled storage).
+      (function () {
+        try {
+          var palette = localStorage.getItem('sofee:palette') || 'nocturne';
+          document.documentElement.dataset.palette = palette;
+        } catch (e) {
+          document.documentElement.dataset.palette = 'nocturne';
+        }
+        try {
+          var locale = localStorage.getItem('sofee:locale');
+          if (locale === 'en' || locale === 'es') {
+            document.documentElement.lang = locale;
+          } else {
+            var languages = (navigator.languages || [navigator.language || 'en']).map(function (l) {
+              return l.toLowerCase().split('-')[0];
+            });
+            document.documentElement.lang = languages.indexOf('es') !== -1 ? 'es' : 'en';
+          }
+        } catch (e) {
+          // Keep the static lang="en" from the tag above.
+        }
+      })();
+    </script>
+  </head>
+  <body>
+    <div id="app"></div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

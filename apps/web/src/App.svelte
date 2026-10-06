@@ -1,0 +1,1151 @@
+<!--
+  The app shell: wires @sofee/ui's presentational components to apps/web's own state
+  (app-state.svelte.ts) and to @sofee/core's framework-free logic (i18n, the scroll controller,
+  the mock assistant). ux-foundations.md §2 — two 56px rails flanking one canvas, no sidebar.
+-->
+<script lang="ts">
+  import { onMount, tick } from 'svelte';
+  import type { ChatMessage, ComposerMode, Thread } from '@sofee/core';
+  import {
+    CommandPalette,
+    ConfirmDialog,
+    Composer,
+    ContextMeter,
+    DottedCanvas,
+    EmptyState,
+    LiveRegion,
+    Menu,
+    MessageItem,
+    MessageList,
+    DropdownPanel,
+    OverlayPanel,
+    IconToolbar,
+    SettingsDialog,
+    ShortcutsDialog,
+    ThinkingIndicator,
+    type MenuItemConfig,
+    type ToolbarItem,
+  } from '@sofee/ui';
+  import {
+    IconAttachments,
+    IconChats,
+    IconCompact,
+    IconGlobe,
+    IconKeyboard,
+    IconMcp,
+    IconMore,
+    IconPalette,
+    IconPlus,
+    IconProjects,
+    IconSettings,
+    IconToolCalls,
+    IconTrash,
+  } from '@sofee/icons';
+  import { appState, type PanelId } from './lib/app-state.svelte.js';
+  import { getLocale, setLocale, t, tWide } from './lib/i18n.svelte.js';
+  import { getPaletteId, listPalettes, setPaletteId } from './lib/palette.svelte.js';
+  import AuthScreen from './AuthScreen.svelte';
+  import { auth, type AuthStatus } from './lib/auth.svelte.js';
+  import { models } from './lib/models.svelte.js';
+  import { uploadFile } from './lib/api.js';
+  import {
+    loadConversations,
+    setConversationSync,
+    syncMessage,
+    syncMessageRemoved,
+    syncThread,
+  } from './lib/backend.svelte.js';
+
+  let messageListRef: MessageList<ChatMessage> | null = $state(null);
+  let composerRef: Composer | null = $state(null);
+  let copiedMessageId: string | null = $state(null);
+
+  onMount(() => {
+    void auth.bootstrap();
+  });
+
+  // Auth transitions drive the backend wiring: sign-in installs persistence hooks, loads the
+  // user's conversations and the model catalogue; sign-out tears all of it down and resets the
+  // canvas. `lastAuthStatus` is a plain variable (not $state) so this effect only runs on an
+  // actual transition, never in a loop.
+  let lastAuthStatus: AuthStatus | null = null;
+  $effect(() => {
+    const status = auth.status;
+    if (status === lastAuthStatus) return;
+    lastAuthStatus = status;
+    if (status === 'signedIn') {
+      setConversationSync(true);
+      appState.setPersistence({
+        threadChanged: (thread) => syncThread(thread),
+        messageChanged: (thread, message) => syncMessage(thread, message),
+        messageRemoved: (threadId, messageId) => syncMessageRemoved(threadId, messageId),
+      });
+      appState.setUploader(uploadFile);
+      appState.reset();
+      void models.load().catch(() => undefined);
+      void loadConversations()
+        .then((threads) => appState.hydrateThreads(threads))
+        .catch(() => undefined);
+    } else if (status === 'signedOut') {
+      setConversationSync(false);
+      appState.clearPersistence();
+      appState.clearUploader();
+      models.reset();
+      appState.reset();
+    }
+  });
+
+  async function handleLogout(): Promise<void> {
+    appState.closeMenusAndPanels();
+    await auth.logout();
+  }
+
+  // ux-foundations.md §5: "Drafts: Persisted per thread; switching away and back restores the
+  // text." `composerValue` is plain, two-way-bound $state (Composer's `value` prop is
+  // `$bindable`) rather than a writable $derived: the latter looks tempting here, but Svelte 5
+  // rejects a child component's `bind:` write landing on a $derived binding
+  // ("state_unsafe_mutation: updating state inside $derived") — writable-derived reassignment is
+  // only for the declaring scope itself. So this is the ordinary pair of effects instead: one
+  // syncs the store's value in on thread switch, the other writes keystrokes back out.
+  // eslint-disable-next-line svelte/prefer-writable-derived -- crashes when reassigned via bind:value from a child; see comment above
+  let composerValue = $state(appState.draftFor(appState.activeThreadId));
+  $effect(() => {
+    composerValue = appState.draftFor(appState.activeThreadId);
+  });
+  $effect(() => {
+    appState.setDraft(appState.activeThreadId, composerValue);
+  });
+
+  // Written as an exhaustive switch, each branch calling t() with its own literal path, rather
+  // than building the path from a template string — that would defeat MessagePath<Messages>'s
+  // whole point of catching a bad key at compile time (see packages/core's i18n.ts).
+  function toolCallStatusLabel(status: 'running' | 'success' | 'error'): string {
+    switch (status) {
+      case 'running':
+        return t('panel.toolCalls.statusRunning');
+      case 'success':
+        return t('panel.toolCalls.statusSuccess');
+      case 'error':
+        return t('panel.toolCalls.statusError');
+    }
+  }
+
+  function mcpStatusLabel(connected: boolean): string {
+    return connected ? t('panel.mcp.connected') : t('panel.mcp.disconnected');
+  }
+
+  function threadTitle(thread: Thread): string {
+    const firstUser = thread.messages.find((m) => m.role === 'user');
+    return firstUser ? firstUser.text.slice(0, 60) : t('menu.new.newChat');
+  }
+
+  function guardTemporaryLeave(proceed: () => void): void {
+    const thread = appState.activeThread;
+    if (thread.isTemporary && thread.messages.length > 0) {
+      appState.pendingTemporaryLeave = proceed;
+    } else {
+      proceed();
+    }
+  }
+
+  async function selectThread(threadId: string): Promise<void> {
+    if (threadId === appState.activeThreadId) return;
+    guardTemporaryLeave(async () => {
+      const previousId = appState.activeThreadId;
+      appState.scrollMemory.save(
+        previousId,
+        messageListRef?.captureScrollMemory() ?? { scrollTop: 0, topMostMessageId: null },
+      );
+      appState.switchThread(threadId);
+      await tick();
+      messageListRef?.restoreScrollMemory(appState.scrollMemory.restore(threadId));
+    });
+  }
+
+  async function handleSend(): Promise<void> {
+    const threadId = appState.activeThreadId;
+    const message = appState.sendMessage(
+      threadId,
+      composerValue,
+      appState.pendingAttachmentStorageIds,
+    );
+    if (!message) return;
+    composerValue = '';
+    await tick();
+    await messageListRef?.prepareForSend(message.id);
+    composerRef?.focus();
+  }
+
+  function handleStop(): void {
+    appState.stopStreaming(appState.activeThreadId);
+  }
+
+  function handleModeChange(mode: ComposerMode): void {
+    appState.setMode(appState.activeThreadId, mode);
+  }
+
+  async function handleEdit(messageId: string): Promise<void> {
+    composerValue = appState.beginEdit(appState.activeThreadId, messageId);
+    await tick();
+    composerRef?.focus();
+  }
+
+  async function handleCopy(messageId: string, text: string): Promise<void> {
+    try {
+      await navigator.clipboard.writeText(text);
+      copiedMessageId = messageId;
+      setTimeout(() => {
+        if (copiedMessageId === messageId) copiedMessageId = null;
+      }, 1500);
+    } catch {
+      // Clipboard permission can be denied by the browser/OS; there is no in-thread fallback
+      // worth the complexity for a demo build.
+    }
+  }
+
+  function onStarterSelect(starterText: string): void {
+    composerValue = starterText;
+    void handleSend();
+  }
+
+  function onLongPaste(text: string): void {
+    appState.addAttachment(`${t('composer.longPasteTitle')}.txt`, 'file', formatBytes(text.length));
+  }
+
+  function formatBytes(bytes: number): string {
+    if (bytes < 1024) return `${bytes} B`;
+    const kb = bytes / 1024;
+    return kb < 1024 ? `${Math.round(kb)} KB` : `${(kb / 1024).toFixed(1)} MB`;
+  }
+
+  function onCanvasDragOver(event: DragEvent): void {
+    event.preventDefault();
+    appState.isDropTargetActive = true;
+  }
+  function onCanvasDragLeave(): void {
+    appState.isDropTargetActive = false;
+  }
+  function onCanvasDrop(event: DragEvent): void {
+    event.preventDefault();
+    appState.isDropTargetActive = false;
+    const files = event.dataTransfer?.files;
+    if (!files) return;
+    for (const file of Array.from(files)) {
+      appState.addAttachment(
+        file.name,
+        file.type.startsWith('image/') ? 'image' : 'file',
+        formatBytes(file.size),
+        file,
+      );
+    }
+  }
+
+  let fileInputEl: HTMLInputElement | null = $state(null);
+
+  /** The composer's paperclip and a drop on the canvas end in the same place (§5). */
+  function openFilePicker(): void {
+    fileInputEl?.click();
+  }
+
+  function onFilesPicked(event: Event): void {
+    const input = event.currentTarget as HTMLInputElement;
+    for (const file of Array.from(input.files ?? [])) {
+      appState.addAttachment(
+        file.name,
+        file.type.startsWith('image/') ? 'image' : 'file',
+        formatBytes(file.size),
+        file,
+      );
+    }
+    // Cleared so picking the same file twice in a row still fires a change event.
+    input.value = '';
+  }
+
+  /** §2.2: "home" is a thread with nothing in it yet — the empty-state canvas. */
+  let isHome = $derived(appState.activeThread.messages.length === 0);
+
+  // --- Toolbars -----------------------------------------------------------------------------
+
+  let headerItems = $derived<ToolbarItem[]>([
+    {
+      id: 'new',
+      icon: IconPlus,
+      label: t('toolbar.new.label'),
+      tooltip: t('toolbar.new.tooltip'),
+      active: appState.newMenuOpen,
+      ariaHasPopup: 'menu',
+      ariaExpanded: appState.newMenuOpen,
+      onActivate: (btn) => {
+        appState.newMenuAnchor = btn;
+        appState.newMenuOpen = !appState.newMenuOpen;
+        appState.moreMenuOpen = false;
+        appState.contextMoreMenuOpen = false;
+      },
+    },
+    {
+      id: 'chats',
+      icon: IconChats,
+      label: t('toolbar.chats.label'),
+      tooltip: t('toolbar.chats.tooltip'),
+      active: appState.activePanel === 'chats',
+      ariaHasPopup: 'dialog',
+      ariaExpanded: appState.activePanel === 'chats',
+      onActivate: (btn) => appState.openPanel('chats', btn),
+    },
+    {
+      id: 'projects',
+      icon: IconProjects,
+      label: t('toolbar.projects.label'),
+      tooltip: t('toolbar.projects.tooltip'),
+      active: appState.activePanel === 'projects',
+      ariaHasPopup: 'dialog',
+      ariaExpanded: appState.activePanel === 'projects',
+      onActivate: (btn) => appState.openPanel('projects', btn),
+    },
+    {
+      id: 'more',
+      icon: IconMore,
+      label: t('toolbar.more.label'),
+      tooltip: t('toolbar.more.tooltip'),
+      active: appState.moreMenuOpen,
+      ariaHasPopup: 'menu',
+      ariaExpanded: appState.moreMenuOpen,
+      onActivate: (btn) => {
+        appState.moreMenuAnchor = btn;
+        appState.moreMenuOpen = !appState.moreMenuOpen;
+        appState.moreMenuView = 'root';
+        appState.newMenuOpen = false;
+        appState.contextMoreMenuOpen = false;
+      },
+    },
+  ]);
+
+  let contextItems = $derived<ToolbarItem[]>([
+    {
+      id: 'toolCalls',
+      icon: IconToolCalls,
+      // The visible badge (design-system.md §6) is aria-hidden by design — the accessible name
+      // carries the count instead, via the plural message, rather than leaving a screen reader
+      // user to discover it only by opening the panel.
+      label:
+        appState.toolCalls.length > 0
+          ? t('toolbar.toolCalls.count', { count: appState.toolCalls.length })
+          : t('toolbar.toolCalls.label'),
+      tooltip: t('toolbar.toolCalls.tooltip'),
+      badge: appState.toolCalls.length,
+      active: appState.activePanel === 'toolCalls',
+      ariaHasPopup: 'dialog',
+      ariaExpanded: appState.activePanel === 'toolCalls',
+      onActivate: (btn) => appState.openPanel('toolCalls', btn),
+    },
+    {
+      id: 'mcp',
+      icon: IconMcp,
+      label:
+        appState.mcpServers.filter((s) => s.connected).length > 0
+          ? t('toolbar.mcp.count', { count: appState.mcpServers.filter((s) => s.connected).length })
+          : t('toolbar.mcp.label'),
+      tooltip: t('toolbar.mcp.tooltip'),
+      badge: appState.mcpServers.filter((s) => s.connected).length,
+      active: appState.activePanel === 'mcp',
+      ariaHasPopup: 'dialog',
+      ariaExpanded: appState.activePanel === 'mcp',
+      onActivate: (btn) => appState.openPanel('mcp', btn),
+    },
+    {
+      id: 'attachments',
+      icon: IconAttachments,
+      label:
+        appState.attachments.length > 0
+          ? t('toolbar.attachments.count', { count: appState.attachments.length })
+          : t('toolbar.attachments.label'),
+      tooltip: t('toolbar.attachments.tooltip'),
+      badge: appState.attachments.length,
+      active: appState.activePanel === 'attachments',
+      ariaHasPopup: 'dialog',
+      ariaExpanded: appState.activePanel === 'attachments',
+      onActivate: (btn) => appState.openPanel('attachments', btn),
+    },
+    {
+      id: 'contextMore',
+      icon: IconMore,
+      label: t('toolbar.more.label'),
+      tooltip: t('toolbar.more.tooltip'),
+      active: appState.contextMoreMenuOpen,
+      ariaHasPopup: 'menu',
+      ariaExpanded: appState.contextMoreMenuOpen,
+      onActivate: (btn) => {
+        appState.contextMoreMenuAnchor = btn;
+        appState.contextMoreMenuOpen = !appState.contextMoreMenuOpen;
+        appState.newMenuOpen = false;
+        appState.moreMenuOpen = false;
+      },
+    },
+  ]);
+
+  // --- Menus -------------------------------------------------------------------------------
+
+  let newMenuItems = $derived<MenuItemConfig[]>([
+    {
+      id: 'new-chat',
+      label: t('menu.new.newChat'),
+      icon: IconChats,
+      onActivate: () => guardTemporaryLeave(() => appState.createThread(false)),
+    },
+    {
+      id: 'new-project',
+      label: t('menu.new.newProject'),
+      icon: IconProjects,
+      onActivate: () => guardTemporaryLeave(() => appState.createProject()),
+    },
+    {
+      id: 'new-temp',
+      label: t('menu.new.newTemporaryChat'),
+      icon: IconChats,
+      onActivate: () => guardTemporaryLeave(() => appState.createThread(true)),
+    },
+  ]);
+
+  let moreMenuItems = $derived<MenuItemConfig[]>(buildMoreMenuItems());
+
+  function buildMoreMenuItems(): MenuItemConfig[] {
+    if (appState.moreMenuView === 'language') {
+      return [
+        {
+          id: 'back',
+          label: t('menu.more.back'),
+          keepOpen: true,
+          onActivate: () => (appState.moreMenuView = 'root'),
+        },
+        {
+          id: 'lang-en',
+          label: t('language.en'),
+          checked: getLocale() === 'en',
+          keepOpen: true,
+          onActivate: () => {
+            setLocale('en');
+            appState.moreMenuView = 'root';
+          },
+        },
+        {
+          id: 'lang-es',
+          label: t('language.es'),
+          checked: getLocale() === 'es',
+          keepOpen: true,
+          onActivate: () => {
+            setLocale('es');
+            appState.moreMenuView = 'root';
+          },
+        },
+      ];
+    }
+    if (appState.moreMenuView === 'palette') {
+      return [
+        {
+          id: 'back',
+          label: t('menu.more.back'),
+          keepOpen: true,
+          onActivate: () => (appState.moreMenuView = 'root'),
+        },
+        ...listPalettes().map((palette) => ({
+          id: `palette-${palette.id}`,
+          label: palette.label,
+          checked: getPaletteId() === palette.id,
+          keepOpen: true,
+          onActivate: () => {
+            setPaletteId(palette.id);
+            appState.moreMenuView = 'root';
+          },
+        })),
+      ];
+    }
+    return [
+      {
+        id: 'settings',
+        label: t('menu.more.settings'),
+        icon: IconSettings,
+        onActivate: () => {
+          appState.settingsTriggerEl = appState.moreMenuAnchor;
+          appState.settingsOpen = true;
+          appState.moreMenuOpen = false;
+        },
+      },
+      {
+        id: 'language',
+        label: t('menu.more.language'),
+        icon: IconGlobe,
+        keepOpen: true,
+        onActivate: () => (appState.moreMenuView = 'language'),
+      },
+      {
+        id: 'palette',
+        label: t('menu.more.palette'),
+        icon: IconPalette,
+        keepOpen: true,
+        onActivate: () => (appState.moreMenuView = 'palette'),
+      },
+      {
+        id: 'shortcuts',
+        label: t('menu.more.shortcuts'),
+        icon: IconKeyboard,
+        onActivate: () => {
+          appState.shortcutsTriggerEl = appState.moreMenuAnchor;
+          appState.shortcutsOpen = true;
+          appState.moreMenuOpen = false;
+        },
+      },
+      {
+        id: 'logout',
+        label: t('menu.more.logout'),
+        onActivate: () => void handleLogout(),
+      },
+    ];
+  }
+
+  let contextMoreMenuItems = $derived<MenuItemConfig[]>([
+    {
+      id: 'compact',
+      label: t('menu.context.compact'),
+      icon: IconCompact,
+      onActivate: () => appState.compactContext(appState.activeThreadId),
+    },
+    {
+      id: 'clear',
+      label: t('menu.context.clear'),
+      icon: IconTrash,
+      destructive: true,
+      onActivate: () => appState.clearContext(appState.activeThreadId),
+    },
+  ]);
+
+  let commandPaletteCommands = $derived<MenuItemConfig[]>([
+    {
+      id: 'cmd-new-chat',
+      label: t('commandPalette.newChat'),
+      icon: IconChats,
+      onActivate: () => guardTemporaryLeave(() => appState.createThread(false)),
+    },
+    {
+      id: 'cmd-new-project',
+      label: t('commandPalette.newProject'),
+      icon: IconProjects,
+      onActivate: () => guardTemporaryLeave(() => appState.createProject()),
+    },
+    {
+      id: 'cmd-new-temp',
+      label: t('commandPalette.newTemporaryChat'),
+      icon: IconChats,
+      onActivate: () => guardTemporaryLeave(() => appState.createThread(true)),
+    },
+    {
+      id: 'cmd-toggle-chats',
+      label: t('commandPalette.toggleChats'),
+      icon: IconChats,
+      onActivate: () => (appState.activePanel = appState.activePanel === 'chats' ? null : 'chats'),
+    },
+    {
+      id: 'cmd-toggle-projects',
+      label: t('commandPalette.toggleProjects'),
+      icon: IconProjects,
+      onActivate: () =>
+        (appState.activePanel = appState.activePanel === 'projects' ? null : 'projects'),
+    },
+    {
+      id: 'cmd-settings',
+      label: t('commandPalette.openSettings'),
+      icon: IconSettings,
+      onActivate: () => (appState.settingsOpen = true),
+    },
+    {
+      id: 'cmd-shortcuts',
+      label: t('commandPalette.openShortcuts'),
+      icon: IconKeyboard,
+      onActivate: () => (appState.shortcutsOpen = true),
+    },
+  ]);
+
+  function closePanel(panel: PanelId): void {
+    if (appState.activePanel === panel) appState.activePanel = null;
+  }
+
+  // --- Global keyboard (ux-foundations.md §6) --------------------------------------------
+
+  function moveMessageFocus(direction: 1 | -1): void {
+    const articles = Array.from(document.querySelectorAll<HTMLElement>('[data-message-id]'));
+    if (articles.length === 0) return;
+    const currentIndex = articles.findIndex((el) => el === document.activeElement);
+    const nextIndex =
+      currentIndex === -1
+        ? direction === 1
+          ? 0
+          : articles.length - 1
+        : Math.min(Math.max(currentIndex + direction, 0), articles.length - 1);
+    articles[nextIndex]?.focus();
+  }
+
+  function onGlobalKeydown(event: KeyboardEvent): void {
+    if (auth.status !== 'signedIn') return;
+    const mod = event.metaKey || event.ctrlKey;
+
+    if (mod && event.key.toLowerCase() === 'k') {
+      event.preventDefault();
+      appState.commandPaletteOpen = true;
+      return;
+    }
+    if (mod && event.shiftKey && event.key.toLowerCase() === 'n') {
+      event.preventDefault();
+      guardTemporaryLeave(() => appState.createThread(true));
+      return;
+    }
+    if (mod && event.key.toLowerCase() === 'n') {
+      event.preventDefault();
+      guardTemporaryLeave(() => appState.createThread(false));
+      return;
+    }
+    if (mod && event.key.toLowerCase() === 'j') {
+      event.preventDefault();
+      appState.activePanel = appState.activePanel === 'chats' ? null : 'chats';
+      return;
+    }
+    if (mod && event.key === '/') {
+      event.preventDefault();
+      appState.shortcutsOpen = !appState.shortcutsOpen;
+      return;
+    }
+    if (event.key === 'Escape') {
+      if (appState.commandPaletteOpen) {
+        appState.commandPaletteOpen = false;
+      } else if (appState.settingsOpen) {
+        appState.settingsOpen = false;
+      } else if (appState.shortcutsOpen) {
+        appState.shortcutsOpen = false;
+      } else if (appState.pendingTemporaryLeave) {
+        appState.pendingTemporaryLeave = null;
+      } else if (appState.activePanel) {
+        appState.activePanel = null;
+      } else if (appState.newMenuOpen || appState.moreMenuOpen || appState.contextMoreMenuOpen) {
+        appState.newMenuOpen = false;
+        appState.moreMenuOpen = false;
+        appState.contextMoreMenuOpen = false;
+      } else if (appState.isActiveThreadBusy) {
+        appState.stopStreaming(appState.activeThreadId);
+      }
+      return;
+    }
+    if (
+      event.key === 'ArrowUp' &&
+      (event.target as HTMLElement)?.tagName === 'TEXTAREA' &&
+      composerValue === ''
+    ) {
+      const lastUser = [...appState.activeThread.messages].reverse().find((m) => m.role === 'user');
+      if (lastUser) {
+        event.preventDefault();
+        void handleEdit(lastUser.id);
+      }
+      return;
+    }
+    if (event.altKey && event.key === 'ArrowUp') {
+      event.preventDefault();
+      moveMessageFocus(-1);
+    } else if (event.altKey && event.key === 'ArrowDown') {
+      event.preventDefault();
+      moveMessageFocus(1);
+    }
+  }
+
+  $effect(() => {
+    window.addEventListener('keydown', onGlobalKeydown);
+    return () => window.removeEventListener('keydown', onGlobalKeydown);
+  });
+
+  $effect(() => {
+    function onBeforeUnload(event: BeforeUnloadEvent): void {
+      if (appState.activeThread.isTemporary && appState.activeThread.messages.length > 0) {
+        event.preventDefault();
+        event.returnValue = '';
+      }
+    }
+    window.addEventListener('beforeunload', onBeforeUnload);
+    return () => window.removeEventListener('beforeunload', onBeforeUnload);
+  });
+</script>
+
+{#if auth.status === 'bootstrapping'}
+  <div class="boot-screen">{t('auth.bootstrapping')}</div>
+{:else if auth.status === 'signedOut'}
+  <AuthScreen />
+{:else}
+  <input
+    bind:this={fileInputEl}
+    type="file"
+    multiple
+    class="visually-hidden-input"
+    tabindex="-1"
+    aria-hidden="true"
+    onchange={onFilesPicked}
+  />
+
+  <a class="skip-link" href="#composer">{t('app.skipToComposer')}</a>
+
+  <div class="shell">
+    <main
+      class="canvas"
+      ondragover={onCanvasDragOver}
+      ondragleave={onCanvasDragLeave}
+      ondrop={onCanvasDrop}
+    >
+      <DottedCanvas />
+
+      {#if appState.isDropTargetActive}
+        <div class="drop-overlay">{t('composer.dropHint')}</div>
+      {/if}
+
+      <!-- §2.1: the navigation cluster floats over the canvas as a header rather than occupying
+         a column, so the canvas is the full width of the window under it. -->
+      <div class="header-dock">
+        <IconToolbar
+          orientation="horizontal"
+          label={t('toolbar.header.label')}
+          items={headerItems}
+        />
+      </div>
+
+      <!-- §2.2: context management only has anything to say once there is a conversation to
+         manage, so it is absent on the home canvas. Its gutter is reserved either way (see
+         .canvas below), so arriving here on send reflows nothing. -->
+      {#if !isHome}
+        <div class="context-dock">
+          <IconToolbar
+            orientation="vertical"
+            label={t('toolbar.context.label')}
+            items={contextItems}
+          >
+            <ContextMeter
+              percent={appState.contextPercent}
+              label={t('toolbar.contextMeter.label')}
+              valueText={t('toolbar.contextMeter.value', {
+                percent: Math.round(appState.contextPercent),
+              })}
+            />
+          </IconToolbar>
+        </div>
+      {/if}
+
+      <div class="canvas-content">
+        {#if appState.activeThread.isTemporary}
+          <div class="canvas-header">
+            <span class="temporary-badge">{t('temporaryChat.badge')}</span>
+          </div>
+        {/if}
+
+        <MessageList
+          bind:this={messageListRef}
+          controller={appState.activeScrollController}
+          t={tWide}
+          items={appState.activeThread.messages}
+        >
+          {#snippet empty()}
+            <EmptyState t={tWide} {onStarterSelect} />
+          {/snippet}
+          {#snippet item(message)}
+            {#if message.role === 'assistant' && message.status === 'pending' && message.text === ''}
+              <ThinkingIndicator t={tWide} />
+            {:else}
+              <MessageItem
+                id={message.id}
+                role={message.role}
+                status={message.status}
+                text={message.text}
+                citations={message.citations}
+                copied={copiedMessageId === message.id}
+                t={tWide}
+                onCopy={() => handleCopy(message.id, message.text)}
+                onEdit={message.role === 'user' ? () => handleEdit(message.id) : undefined}
+                onRegenerate={message.role === 'assistant' && message.status === 'complete'
+                  ? () => appState.regenerate(appState.activeThreadId, message.id)
+                  : undefined}
+                onGoodResponse={message.role === 'assistant'
+                  ? () => appState.setFeedback(message.id, 'good')
+                  : undefined}
+                onBadResponse={message.role === 'assistant'
+                  ? () => appState.setFeedback(message.id, 'bad')
+                  : undefined}
+                onRetry={message.status === 'error'
+                  ? () => appState.retryUserMessage(appState.activeThreadId, message.id)
+                  : undefined}
+                onContinue={message.status === 'stopped'
+                  ? () => appState.continueMessage(appState.activeThreadId, message.id)
+                  : undefined}
+              />
+            {/if}
+          {/snippet}
+        </MessageList>
+
+        <div class="composer-dock" id="composer">
+          <Composer
+            bind:this={composerRef}
+            bind:value={composerValue}
+            mode={appState.activeThread.mode}
+            isStreaming={appState.isActiveThreadBusy}
+            isTemporary={appState.activeThread.isTemporary}
+            invertSendKey={appState.invertSendKey}
+            pinnedSourceCount={appState.pinnedSourceCount}
+            t={tWide}
+            onSend={handleSend}
+            onStop={handleStop}
+            onModeChange={handleModeChange}
+            onAttach={openFilePicker}
+            {onLongPaste}
+          />
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <Menu
+    items={newMenuItems}
+    label={t('toolbar.new.label')}
+    open={appState.newMenuOpen}
+    anchor={appState.newMenuAnchor}
+    align="left"
+    onClose={() => (appState.newMenuOpen = false)}
+  />
+  <Menu
+    items={moreMenuItems}
+    label={t('toolbar.more.label')}
+    open={appState.moreMenuOpen}
+    anchor={appState.moreMenuAnchor}
+    align="left"
+    onClose={() => (appState.moreMenuOpen = false)}
+  />
+  <Menu
+    items={contextMoreMenuItems}
+    label={t('toolbar.more.label')}
+    open={appState.contextMoreMenuOpen}
+    anchor={appState.contextMoreMenuAnchor}
+    align="right"
+    onClose={() => (appState.contextMoreMenuOpen = false)}
+  />
+
+  <DropdownPanel
+    open={appState.activePanel === 'chats'}
+    titleText={t('panel.chats.title')}
+    closeLabel={t('panel.close')}
+    triggerEl={appState.panelTriggerEl}
+    onClose={() => closePanel('chats')}
+  >
+    <div class="panel-list">
+      {#each appState.threads as thread (thread.id)}
+        <button
+          type="button"
+          class="panel-row"
+          class:current={thread.id === appState.activeThreadId}
+          onclick={() => selectThread(thread.id)}
+        >
+          <span class="panel-row-title">{threadTitle(thread)}</span>
+          {#if thread.isTemporary}<span class="panel-row-tag">{t('temporaryChat.badge')}</span>{/if}
+        </button>
+      {:else}
+        <p class="panel-empty">{t('panel.chats.empty')}</p>
+      {/each}
+    </div>
+  </DropdownPanel>
+
+  <DropdownPanel
+    open={appState.activePanel === 'projects'}
+    titleText={t('panel.projects.title')}
+    closeLabel={t('panel.close')}
+    triggerEl={appState.panelTriggerEl}
+    onClose={() => closePanel('projects')}
+  >
+    <div class="panel-list">
+      {#each appState.projects as project (project.id)}
+        <div class="panel-row static">
+          <span class="panel-row-title">{project.name}</span>
+          <span class="panel-row-tag">{project.threadIds.length}</span>
+        </div>
+      {:else}
+        <p class="panel-empty">{t('panel.projects.empty')}</p>
+      {/each}
+    </div>
+  </DropdownPanel>
+
+  <OverlayPanel
+    open={appState.activePanel === 'toolCalls'}
+    titleText={t('panel.toolCalls.title')}
+    closeLabel={t('panel.close')}
+    triggerEl={appState.panelTriggerEl}
+    onClose={() => closePanel('toolCalls')}
+  >
+    <div class="panel-list">
+      {#each appState.toolCalls as call (call.id)}
+        <div class="panel-row static">
+          <span class="panel-row-title">{call.name}</span>
+          <span class="panel-row-tag">{toolCallStatusLabel(call.status)}</span>
+        </div>
+      {:else}
+        <p class="panel-empty">{t('panel.toolCalls.empty')}</p>
+      {/each}
+    </div>
+  </OverlayPanel>
+
+  <OverlayPanel
+    open={appState.activePanel === 'mcp'}
+    titleText={t('panel.mcp.title')}
+    closeLabel={t('panel.close')}
+    triggerEl={appState.panelTriggerEl}
+    onClose={() => closePanel('mcp')}
+  >
+    <div class="panel-list">
+      {#each appState.mcpServers as server (server.id)}
+        <div class="panel-row static">
+          <span class="panel-row-title">{server.name}</span>
+          <span class="panel-row-tag">{mcpStatusLabel(server.connected)}</span>
+        </div>
+      {:else}
+        <p class="panel-empty">{t('panel.mcp.empty')}</p>
+      {/each}
+    </div>
+  </OverlayPanel>
+
+  <OverlayPanel
+    open={appState.activePanel === 'attachments'}
+    titleText={t('panel.attachments.title')}
+    closeLabel={t('panel.close')}
+    triggerEl={appState.panelTriggerEl}
+    onClose={() => closePanel('attachments')}
+  >
+    <div class="panel-list">
+      {#each appState.attachments as attachment (attachment.id)}
+        <div class="panel-row static">
+          <span class="panel-row-title">{attachment.name}</span>
+          {#if attachment.uploading}
+            <span class="panel-row-tag">{t('panel.attachments.uploading')}</span>
+          {:else if attachment.error}
+            <span class="panel-row-tag">{t('panel.attachments.error')}</span>
+          {:else if attachment.sizeLabel}
+            <span class="panel-row-tag">{attachment.sizeLabel}</span>
+          {/if}
+        </div>
+      {:else}
+        <p class="panel-empty">{t('panel.attachments.empty')}</p>
+      {/each}
+    </div>
+  </OverlayPanel>
+
+  {#if appState.settingsOpen}
+    <SettingsDialog
+      t={tWide}
+      triggerEl={appState.settingsTriggerEl}
+      invertSendKey={appState.invertSendKey}
+      modelOptions={models.options}
+      selectedModelId={models.selectedId}
+      onClose={() => (appState.settingsOpen = false)}
+      onChangeInvertSendKey={(value) => (appState.invertSendKey = value)}
+      onChangeModel={(id) => models.select(id)}
+    />
+  {/if}
+
+  {#if appState.shortcutsOpen}
+    <ShortcutsDialog
+      t={tWide}
+      triggerEl={appState.shortcutsTriggerEl}
+      onClose={() => (appState.shortcutsOpen = false)}
+    />
+  {/if}
+
+  {#if appState.commandPaletteOpen}
+    <CommandPalette
+      t={tWide}
+      commands={commandPaletteCommands}
+      onClose={() => (appState.commandPaletteOpen = false)}
+    />
+  {/if}
+
+  {#if appState.pendingTemporaryLeave}
+    <ConfirmDialog
+      titleText={t('temporaryChat.confirmTitle')}
+      bodyText={t('temporaryChat.confirmBody')}
+      confirmLabel={t('temporaryChat.confirmLeave')}
+      cancelLabel={t('temporaryChat.confirmStay')}
+      onConfirm={() => {
+        const proceed = appState.pendingTemporaryLeave;
+        appState.pendingTemporaryLeave = null;
+        proceed?.();
+      }}
+      onCancel={() => (appState.pendingTemporaryLeave = null)}
+    />
+  {/if}
+
+  <LiveRegion message={appState.liveMessage} />
+{/if}
+
+<style>
+  .shell {
+    flex: 1;
+    min-height: 0;
+    display: flex;
+  }
+
+  .boot-screen {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--p-mut);
+    font-size: 14px;
+  }
+
+  .canvas {
+    position: relative;
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    /* Both gutters are reserved unconditionally, including on the home canvas where the
+       context toolbar is absent: showing it on send must not move a single pixel of the
+       conversation, which is the whole point of §3.2's top-anchored hold. */
+    padding-block-start: var(--toolbar-inset-block);
+    padding-inline: var(--toolbar-gutter);
+  }
+
+  .header-dock,
+  .context-dock {
+    position: absolute;
+    top: var(--space-4);
+    z-index: 5;
+  }
+
+  .header-dock {
+    left: var(--space-4);
+  }
+
+  .context-dock {
+    right: var(--space-4);
+  }
+
+  @media (max-width: 640px) {
+    .canvas {
+      padding-inline: var(--space-2);
+    }
+  }
+
+  .canvas-content {
+    position: relative;
+    z-index: 1;
+    flex: 1;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+  }
+
+  .canvas-header {
+    display: flex;
+    justify-content: center;
+    padding: var(--space-3) 0 0;
+  }
+
+  .temporary-badge {
+    padding: 4px var(--space-3);
+    border-radius: var(--radius-capsule);
+    border: 1px dashed var(--p-line-2);
+    color: var(--p-mut);
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: 0.09em;
+  }
+
+  .composer-dock {
+    padding: var(--space-4);
+  }
+
+  .visually-hidden-input {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+    border: 0;
+  }
+
+  .drop-overlay {
+    position: absolute;
+    inset: var(--space-3);
+    z-index: 10;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border: 2px dashed var(--p-acc);
+    border-radius: var(--radius-panel);
+    background: color-mix(in oklab, var(--p-acc) 10%, transparent);
+    color: var(--p-ink);
+    font-size: 14px;
+    pointer-events: none;
+  }
+
+  .panel-list {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+  }
+
+  .panel-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-2);
+    width: 100%;
+    min-height: var(--target-min);
+    padding: var(--space-2) var(--space-3);
+    border-radius: var(--radius-icon-btn);
+    border: 1px solid var(--p-line);
+    background: var(--p-surf);
+    color: var(--p-ink);
+    font: inherit;
+    font-size: 13px;
+    text-align: left;
+    cursor: pointer;
+  }
+
+  .panel-row.static {
+    cursor: default;
+  }
+
+  .panel-row:not(.static):hover {
+    border-color: var(--p-line-2);
+  }
+
+  .panel-row.current {
+    border-color: var(--p-acc);
+  }
+
+  .panel-row:focus-visible {
+    outline: 2px solid var(--p-acc);
+    outline-offset: 2px;
+  }
+
+  .panel-row-title {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .panel-row-tag {
+    flex-shrink: 0;
+    color: var(--p-mut);
+    font-size: 11px;
+    font-family: 'IBM Plex Mono', ui-monospace, monospace;
+  }
+
+  .panel-empty {
+    color: var(--p-mut);
+    font-size: 13px;
+    line-height: 1.6;
+  }
+</style>

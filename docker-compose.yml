@@ -1,0 +1,38 @@
+services:
+  postgres:
+    image: postgres:17-alpine
+    container_name: sofee-postgres
+    environment:
+      POSTGRES_USER: sofee
+      POSTGRES_PASSWORD: sofee
+      POSTGRES_DB: sofee
+    ports:
+      - '5432:5432'
+    volumes:
+      - sofee_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U sofee -d sofee']
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  postgres-test:
+    image: postgres:17-alpine
+    container_name: sofee-postgres-test
+    environment:
+      POSTGRES_USER: sofee
+      POSTGRES_PASSWORD: sofee
+      POSTGRES_DB: sofee_test
+    ports:
+      - '5433:5432'
+    volumes:
+      - sofee_pgdata_test:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U sofee -d sofee_test']
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  sofee_pgdata:
+  sofee_pgdata_test:
