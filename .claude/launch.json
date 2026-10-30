@@ -18,6 +18,15 @@
       "runtimeExecutable": "npm",
       "runtimeArgs": ["run", "dev", "--workspace=@sofee/admin"],
       "port": 5174
+    },
+    {
+      "name": "sofee-demo",
+      "runtimeExecutable": "bash",
+      "runtimeArgs": [
+        "-lc",
+        "cd apps/api && set -a && . ./.env.demo && set +a && uv run uvicorn app.main:app --port 8010"
+      ],
+      "port": 8010
     }
   ]
 }

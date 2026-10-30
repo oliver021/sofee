@@ -22,10 +22,13 @@ _SLUG_MAX = 80
 _SNIPPET_OPTIONS = 'MaxWords=30, MinWords=10, StartSel="", StopSel=""'
 
 # Busca con las dos configuraciones: el tsvector tiene español e inglés (ver models/kb.py).
+# Las palabras se unen con OR, no con AND: el agente consulta con varias palabras clave a la vez
+# y con AND casi nunca están todas en un mismo documento. ts_rank pone primero los que casan más.
 _SEARCH_SQL = text(
     """
     WITH query AS (
-        SELECT websearch_to_tsquery('spanish', :q) || websearch_to_tsquery('english', :q) AS q
+        SELECT replace(plainto_tsquery('spanish', :q)::text, ' & ', ' | ')::tsquery
+            || replace(plainto_tsquery('english', :q)::text, ' & ', ' | ')::tsquery AS q
     )
     SELECT ranked.id, ranked.title, ts_headline('spanish', ranked.text, query.q, :options) AS snippet
     FROM (

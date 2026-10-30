@@ -34,6 +34,23 @@ async def test_search_finds_spanish_and_english_text_and_returns_snippets(client
     assert [hit.title for hit in pipeline] == ["Deployment"]
 
 
+async def test_multi_word_queries_match_any_word(client):
+    """Una consulta de varias palabras no exige que todas estén en el mismo documento."""
+    await authed_client(client)
+    await _add(
+        client,
+        "guardia.md",
+        "# Guardia\n\nLa rotación de guardia tiene escalado al secundario y severidad SEV1.".encode(),
+    )
+    await _add(client, "postmortems.md", "# Postmortems\n\nCada incidente termina en un postmortem.".encode())
+    await _add(client, "cafe.md", "# Café\n\nLa cafetera está en la cocina.".encode())
+
+    async with async_session_factory() as db:
+        hits = await search_documents(db, "rotación escalado runbook severidad postmortem", limit=5)
+
+    assert sorted(hit.title for hit in hits) == ["Guardia", "Postmortems"]
+
+
 async def test_disabled_documents_are_not_searchable(client):
     await authed_client(client)
     doc_id = await _add(client, "secreto.md", "# Secreto\n\nLa revisión trimestral es el día 3.".encode())
