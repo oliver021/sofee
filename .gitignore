@@ -45,3 +45,6 @@ apps/admin/dist/
 
 # secretos sueltos que no deben llegar al repo (p. ej. API keys pegadas a mano)
 defaultPROVIDER.txt
+
+# notas de planificación locales (no se versionan)
+docs/deep-agent-roadmap.md

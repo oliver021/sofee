@@ -5,12 +5,22 @@
 -->
 <script lang="ts">
   import { onMount, tick } from 'svelte';
-  import type { ChatMessage, ComposerMode, Thread } from '@sofee/core';
   import {
+    contextMarks,
+    isActiveRunStatus,
+    type ChatMessage,
+    type ComposerMode,
+    type ContextMarkKind,
+    type Thread,
+  } from '@sofee/core';
+  import {
+    AgentFiles,
     CommandPalette,
     ConfirmDialog,
     Composer,
+    ContextDivider,
     ContextMeter,
+    DirectionChips,
     DottedCanvas,
     EmptyState,
     LiveRegion,
@@ -20,9 +30,14 @@
     DropdownPanel,
     OverlayPanel,
     IconToolbar,
+    PlanBlock,
+    PlanReview,
+    QuizBlock,
     SettingsDialog,
     ShortcutsDialog,
-    ThinkingIndicator,
+    SourceList,
+    SubagentCards,
+    ToolTimeline,
     type MenuItemConfig,
     type ToolbarItem,
   } from '@sofee/ui';
@@ -42,7 +57,15 @@
     IconTrash,
   } from '@sofee/icons';
   import { appState, type PanelId } from './lib/app-state.svelte.js';
-  import { getLocale, setLocale, t, tWide } from './lib/i18n.svelte.js';
+  import {
+    agentFileViews,
+    planView,
+    sourceViews,
+    subagentViews,
+    toolRunViews,
+    type AgentViewContext,
+  } from './lib/agent-view.js';
+  import { formatClockTime, getLocale, setLocale, t, tWide } from './lib/i18n.svelte.js';
   import { getPaletteId, listPalettes, setPaletteId } from './lib/palette.svelte.js';
   import AuthScreen from './AuthScreen.svelte';
   import { auth, type AuthStatus } from './lib/auth.svelte.js';
@@ -54,6 +77,7 @@
     syncMessage,
     syncMessageRemoved,
     syncThread,
+    threadSettled,
   } from './lib/backend.svelte.js';
 
   let messageListRef: MessageList<ChatMessage> | null = $state(null);
@@ -79,12 +103,16 @@
         threadChanged: (thread) => syncThread(thread),
         messageChanged: (thread, message) => syncMessage(thread, message),
         messageRemoved: (threadId, messageId) => syncMessageRemoved(threadId, messageId),
+        threadSettled: (threadId) => threadSettled(threadId),
       });
       appState.setUploader(uploadFile);
       appState.reset();
       void models.load().catch(() => undefined);
       void loadConversations()
-        .then((threads) => appState.hydrateThreads(threads))
+        .then((threads) => {
+          appState.hydrateThreads(threads);
+          void appState.loadRuns(appState.activeThreadId);
+        })
         .catch(() => undefined);
     } else if (status === 'signedOut') {
       setConversationSync(false);
@@ -116,20 +144,6 @@
     appState.setDraft(appState.activeThreadId, composerValue);
   });
 
-  // Written as an exhaustive switch, each branch calling t() with its own literal path, rather
-  // than building the path from a template string — that would defeat MessagePath<Messages>'s
-  // whole point of catching a bad key at compile time (see packages/core's i18n.ts).
-  function toolCallStatusLabel(status: 'running' | 'success' | 'error'): string {
-    switch (status) {
-      case 'running':
-        return t('panel.toolCalls.statusRunning');
-      case 'success':
-        return t('panel.toolCalls.statusSuccess');
-      case 'error':
-        return t('panel.toolCalls.statusError');
-    }
-  }
-
   function mcpStatusLabel(connected: boolean): string {
     return connected ? t('panel.mcp.connected') : t('panel.mcp.disconnected');
   }
@@ -157,6 +171,7 @@
         messageListRef?.captureScrollMemory() ?? { scrollTop: 0, topMostMessageId: null },
       );
       appState.switchThread(threadId);
+      void appState.loadRuns(threadId);
       await tick();
       messageListRef?.restoreScrollMemory(appState.scrollMemory.restore(threadId));
     });
@@ -263,6 +278,78 @@
 
   /** §2.2: "home" is a thread with nothing in it yet — the empty-state canvas. */
   let isHome = $derived(appState.activeThread.messages.length === 0);
+
+  // --- Agent surface (roadmap §5, U2–U18) ---------------------------------------------------
+  // Every label and number the agent's parts show is built here from the run state, so the
+  // components below receive strings and never decide what a status means.
+  let agentCtx = $derived<AgentViewContext>({ t: tWide, locale: getLocale() });
+
+  /** Starting questions from the admin for this mode, else the client's own (roadmap U7). */
+  let starterTexts = $derived.by(() => {
+    const fromServer = appState.startersFor(appState.activeThread.mode, getLocale());
+    if (fromServer.length > 0) return [...fromServer];
+    return [t('thread.starter1'), t('thread.starter2'), t('thread.starter3')];
+  });
+
+  /** Where the Compact and Clear dividers sit in the active thread (roadmap U16). */
+  let contextMarkMap = $derived(
+    contextMarks(appState.activeThread.messages, {
+      summaryThroughSeq: appState.activeThread.summaryThroughSeq,
+      contextStartSeq: appState.activeThread.contextStartSeq,
+    }),
+  );
+
+  let toolRuns = $derived(
+    toolRunViews(appState.activeThread.messages, appState.activityByMessage, agentCtx),
+  );
+
+  let focusedView = $derived(
+    appState.focusedSource ? sourceViews([appState.focusedSource], agentCtx)[0] : undefined,
+  );
+
+  let agentFiles = $derived(
+    agentFileViews(appState.agentFilesByThread[appState.activeThreadId] ?? [], agentCtx),
+  );
+
+  let filePreview = $derived(
+    appState.filePreview && appState.filePreview.threadId === appState.activeThreadId
+      ? appState.filePreview
+      : null,
+  );
+
+  /** The waiting state replaces Stop while a plan review is open (roadmap U8). */
+  let waitingLabel = $derived(
+    appState.waitingReviewMessageId !== null ? t('agent.review.waiting') : null,
+  );
+
+  $effect(() => {
+    if (auth.status !== 'signedIn') return;
+    void appState.loadStarters(appState.activeThread.mode, getLocale());
+  });
+
+  function contextMarkLabel(kind: ContextMarkKind): string {
+    return kind === 'compacted' ? t('agent.context.compacted') : t('agent.context.cleared');
+  }
+
+  async function copyAgentFile(content: string): Promise<void> {
+    try {
+      await navigator.clipboard.writeText(content);
+    } catch {
+      // Clipboard permission can be denied; there is no in-panel fallback worth the complexity.
+    }
+  }
+
+  /** Saves an agent file as Markdown. The file is only a blob in memory until the user clicks. */
+  function downloadAgentFile(name: string, content: string): void {
+    const url = URL.createObjectURL(new Blob([content], { type: 'text/markdown;charset=utf-8' }));
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = name.endsWith('.md') ? name : `${name}.md`;
+    document.body.append(link);
+    link.click();
+    link.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 0);
+  }
 
   // --- Toolbars -----------------------------------------------------------------------------
 
@@ -507,14 +594,14 @@
       id: 'compact',
       label: t('menu.context.compact'),
       icon: IconCompact,
-      onActivate: () => appState.compactContext(appState.activeThreadId),
+      onActivate: () => void appState.compactContext(appState.activeThreadId),
     },
     {
       id: 'clear',
       label: t('menu.context.clear'),
       icon: IconTrash,
       destructive: true,
-      onActivate: () => appState.clearContext(appState.activeThreadId),
+      onActivate: () => void appState.clearContext(appState.activeThreadId),
     },
   ]);
 
@@ -745,39 +832,105 @@
           items={appState.activeThread.messages}
         >
           {#snippet empty()}
-            <EmptyState t={tWide} {onStarterSelect} />
+            <EmptyState t={tWide} starters={starterTexts} {onStarterSelect} />
           {/snippet}
           {#snippet item(message)}
-            {#if message.role === 'assistant' && message.status === 'pending' && message.text === ''}
-              <ThinkingIndicator t={tWide} />
-            {:else}
-              <MessageItem
-                id={message.id}
-                role={message.role}
-                status={message.status}
-                text={message.text}
-                citations={message.citations}
-                copied={copiedMessageId === message.id}
-                t={tWide}
-                onCopy={() => handleCopy(message.id, message.text)}
-                onEdit={message.role === 'user' ? () => handleEdit(message.id) : undefined}
-                onRegenerate={message.role === 'assistant' && message.status === 'complete'
-                  ? () => appState.regenerate(appState.activeThreadId, message.id)
-                  : undefined}
-                onGoodResponse={message.role === 'assistant'
-                  ? () => appState.setFeedback(message.id, 'good')
-                  : undefined}
-                onBadResponse={message.role === 'assistant'
-                  ? () => appState.setFeedback(message.id, 'bad')
-                  : undefined}
-                onRetry={message.status === 'error'
-                  ? () => appState.retryUserMessage(appState.activeThreadId, message.id)
-                  : undefined}
-                onContinue={message.status === 'stopped'
-                  ? () => appState.continueMessage(appState.activeThreadId, message.id)
-                  : undefined}
-              />
-            {/if}
+            {@const run =
+              message.role === 'assistant' ? appState.activityByMessage[message.id] : undefined}
+            {@const plan = run ? planView(run, agentCtx) : null}
+            {@const review = run?.interrupt && plan ? plan.steps : null}
+            {@const subagents = run ? subagentViews(run.subagents, agentCtx) : []}
+            {@const sources =
+              message.role === 'assistant' && message.citations && message.citations.length > 0
+                ? sourceViews(message.citations, agentCtx)
+                : []}
+            {@const marks = contextMarkMap[message.id]}
+            {#each marks?.before ?? [] as kind (kind)}
+              <ContextDivider label={contextMarkLabel(kind)} />
+            {/each}
+            <MessageItem
+              id={message.id}
+              role={message.role}
+              status={message.status}
+              text={message.text}
+              citations={appState.citationsFor(message)}
+              errorCode={message.errorCode}
+              errorResetLabel={message.errorResetAt
+                ? formatClockTime(message.errorResetAt)
+                : undefined}
+              statusText={run?.statusText ?? ''}
+              feedback={appState.feedback[message.id]}
+              copied={copiedMessageId === message.id}
+              t={tWide}
+              onCopy={() => handleCopy(message.id, message.text)}
+              onEdit={message.role === 'user' ? () => handleEdit(message.id) : undefined}
+              onRegenerate={message.role === 'assistant' && message.status === 'complete'
+                ? () => appState.regenerate(appState.activeThreadId, message.id)
+                : undefined}
+              onGoodResponse={message.role === 'assistant'
+                ? () => appState.setFeedback(appState.activeThreadId, message.id, 'good')
+                : undefined}
+              onBadResponse={message.role === 'assistant'
+                ? () => appState.setFeedback(appState.activeThreadId, message.id, 'bad')
+                : undefined}
+              onRetry={message.status === 'error'
+                ? () => appState.retryMessage(appState.activeThreadId, message.id)
+                : undefined}
+              onChangeModel={() => (appState.settingsOpen = true)}
+              onContinue={message.status === 'stopped'
+                ? () => appState.continueMessage(appState.activeThreadId, message.id)
+                : undefined}
+              onOpenSource={(citation, trigger) => appState.showSource(citation, trigger)}
+            >
+              {#snippet activity()}
+                {#if plan && !review}
+                  <PlanBlock {plan} t={tWide} />
+                {:else if !plan && run && isActiveRunStatus(run.status) && run.sources.length > 0}
+                  <p class="live-sources">
+                    {t('agent.sources.live', { count: run.sources.length })}
+                  </p>
+                {/if}
+                {#if subagents.length > 0}
+                  <SubagentCards
+                    {subagents}
+                    heading={t('agent.subagents.heading', { count: subagents.length })}
+                    t={tWide}
+                  />
+                {/if}
+                {#if review && run}
+                  <PlanReview
+                    steps={review}
+                    t={tWide}
+                    onApprove={() => void appState.approvePlan(message.id)}
+                    onEdit={(steps) => void appState.editPlan(message.id, steps)}
+                    onSkipReview={() => void appState.skipPlanReview(message.id)}
+                    onStop={handleStop}
+                  />
+                {/if}
+              {/snippet}
+              {#snippet footer()}
+                {#if sources.length > 0}
+                  <SourceList
+                    {sources}
+                    t={tWide}
+                    onOpen={(citation, trigger) => appState.showSource(citation, trigger)}
+                  />
+                {/if}
+                {#if run && run.directions.length > 0}
+                  <DirectionChips
+                    directions={run.directions}
+                    t={tWide}
+                    onPick={(text) => onStarterSelect(text)}
+                  />
+                {/if}
+                {#if run && run.quiz.length > 0}
+                  <QuizBlock items={run.quiz} t={tWide} />
+                {/if}
+              {/snippet}
+            </MessageItem>
+            {#each marks?.after ?? [] as kind (kind)}
+              <ContextDivider label={contextMarkLabel(kind)} />
+            {/each}
           {/snippet}
         </MessageList>
 
@@ -786,7 +939,8 @@
             bind:this={composerRef}
             bind:value={composerValue}
             mode={appState.activeThread.mode}
-            isStreaming={appState.isActiveThreadBusy}
+            isStreaming={appState.isActiveThreadBusy && waitingLabel === null}
+            {waitingLabel}
             isTemporary={appState.activeThread.isTemporary}
             invertSendKey={appState.invertSendKey}
             pinnedSourceCount={appState.pinnedSourceCount}
@@ -877,16 +1031,11 @@
     triggerEl={appState.panelTriggerEl}
     onClose={() => closePanel('toolCalls')}
   >
-    <div class="panel-list">
-      {#each appState.toolCalls as call (call.id)}
-        <div class="panel-row static">
-          <span class="panel-row-title">{call.name}</span>
-          <span class="panel-row-tag">{toolCallStatusLabel(call.status)}</span>
-        </div>
-      {:else}
-        <p class="panel-empty">{t('panel.toolCalls.empty')}</p>
-      {/each}
-    </div>
+    {#if toolRuns.length === 0}
+      <p class="panel-empty">{t('panel.toolCalls.empty')}</p>
+    {:else}
+      <ToolTimeline runs={toolRuns} />
+    {/if}
   </OverlayPanel>
 
   <OverlayPanel
@@ -915,9 +1064,21 @@
     triggerEl={appState.panelTriggerEl}
     onClose={() => closePanel('attachments')}
   >
+    {#if focusedView}
+      <section class="source-focus" aria-label={focusedView.title}>
+        <p class="panel-row-tag">{focusedView.meta}</p>
+        <p class="source-title">{focusedView.title}</p>
+        {#if focusedView.snippet}<p class="source-snippet">{focusedView.snippet}</p>{/if}
+        <p class="panel-row-tag">{t('agent.source.openedFrom')}</p>
+      </section>
+    {/if}
     <div class="panel-list">
       {#each appState.attachments as attachment (attachment.id)}
-        <div class="panel-row static">
+        <div
+          class="panel-row static"
+          class:current={attachment.storageId !== undefined &&
+            attachment.storageId === appState.focusedSource?.ref}
+        >
           <span class="panel-row-title">{attachment.name}</span>
           {#if attachment.uploading}
             <span class="panel-row-tag">{t('panel.attachments.uploading')}</span>
@@ -930,6 +1091,17 @@
       {:else}
         <p class="panel-empty">{t('panel.attachments.empty')}</p>
       {/each}
+    </div>
+    <div class="panel-section">
+      <AgentFiles
+        files={agentFiles}
+        preview={filePreview}
+        t={tWide}
+        onOpen={(path) => void appState.openAgentFile(appState.activeThreadId, path)}
+        onBack={() => appState.closeAgentFile()}
+        onCopy={(content) => void copyAgentFile(content)}
+        onDownload={downloadAgentFile}
+      />
     </div>
   </OverlayPanel>
 
@@ -1147,5 +1319,45 @@
     color: var(--p-mut);
     font-size: 13px;
     line-height: 1.6;
+  }
+
+  .panel-section {
+    margin-top: var(--space-4);
+    padding-top: var(--space-4);
+    border-top: 1px solid var(--p-line);
+  }
+
+  .source-focus {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-1);
+    margin-bottom: var(--space-4);
+    padding: var(--space-3);
+    border-radius: var(--radius-icon-btn);
+    border: 1px solid var(--p-line-2);
+    background: var(--p-surf-2);
+  }
+
+  .source-title {
+    margin: 0;
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--p-ink);
+    overflow-wrap: anywhere;
+  }
+
+  .source-snippet {
+    margin: 0;
+    color: var(--p-mut);
+    font-size: 13px;
+    line-height: 1.5;
+    overflow-wrap: anywhere;
+  }
+
+  /* The live source count of a run that has not written a plan (roadmap U4). */
+  .live-sources {
+    margin: 0;
+    color: var(--p-mut);
+    font-size: 12px;
   }
 </style>

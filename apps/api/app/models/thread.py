@@ -35,6 +35,11 @@ class Thread(Base):
     client_id: Mapped[str] = mapped_column(Text)
     title: Mapped[str | None] = mapped_column(Text)
     mode: Mapped[str] = mapped_column(Text, server_default=sa_text("'learn'"))
+    # Contexto (§3.10 del roadmap): resumen compactado y puntos de corte. Los mensajes
+    # con seq <= summary_through_seq se sustituyen por `summary`; los < context_start_seq no se envían.
+    summary: Mapped[str | None] = mapped_column(Text)
+    summary_through_seq: Mapped[int | None] = mapped_column(BigInteger)
+    context_start_seq: Mapped[int | None] = mapped_column(BigInteger)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )

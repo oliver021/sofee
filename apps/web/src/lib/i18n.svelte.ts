@@ -47,6 +47,13 @@ export function formatRelativeTime(value: number, unit: Intl.RelativeTimeFormatU
   return instance.formatRelativeTime(value, unit);
 }
 
+/** A clock time in the viewer's zone and the active locale, for copy such as "resets at {time}". */
+export function formatClockTime(iso: string): string {
+  const time = Date.parse(iso);
+  if (Number.isNaN(time)) return '';
+  return new Intl.DateTimeFormat(locale, { hour: 'numeric', minute: '2-digit' }).format(time);
+}
+
 /** The boundary adapter packages/ui components accept as their `t` prop — see the `Translate`
  * doc comment in packages/core/src/i18n/i18n.ts for why this cast is the one place it happens. */
 export const tWide: Translate = (path, params) => t(path as MessagePath<Messages>, params);

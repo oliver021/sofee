@@ -1,7 +1,25 @@
-export type { ToolbarItem, MenuItemConfig } from './types.js';
-export { formatMessage } from './format-message.js';
+export type {
+  ToolbarItem,
+  MenuItemConfig,
+  PlanStepStatus,
+  PlanStepView,
+  PlanView,
+  AgentStatus,
+  SubagentView,
+  SourceView,
+  ToolRowView,
+  ToolGroupView,
+  ToolRunView,
+  AgentFileView,
+  AgentFilePreview,
+} from './types.js';
 export { scrollbars, type ScrollbarsParams } from './actions/scrollbars.js';
-export type { Block, InlineSegment } from './format-message.js';
+export {
+  parseMarkdown,
+  type MarkdownBlock,
+  type MarkdownInline,
+} from './markdown/parse-markdown.js';
+export { safeHref } from './markdown/safe-href.js';
 
 export { default as VisuallyHidden } from './components/VisuallyHidden.svelte';
 export { default as Badge } from './components/Badge.svelte';
@@ -15,6 +33,18 @@ export { default as DottedCanvas } from './components/DottedCanvas.svelte';
 export { default as LiveRegion } from './components/LiveRegion.svelte';
 export { default as Composer } from './components/Composer.svelte';
 export { default as CitationRef } from './components/CitationRef.svelte';
+export { default as Markdown } from './components/Markdown.svelte';
+export { default as CodeBlock } from './components/CodeBlock.svelte';
+export { default as RunErrorBox } from './components/RunErrorBox.svelte';
+export { default as PlanBlock } from './components/PlanBlock.svelte';
+export { default as PlanReview } from './components/PlanReview.svelte';
+export { default as SubagentCards } from './components/SubagentCards.svelte';
+export { default as SourceList } from './components/SourceList.svelte';
+export { default as DirectionChips } from './components/DirectionChips.svelte';
+export { default as QuizBlock } from './components/QuizBlock.svelte';
+export { default as ToolTimeline } from './components/ToolTimeline.svelte';
+export { default as AgentFiles } from './components/AgentFiles.svelte';
+export { default as ContextDivider } from './components/ContextDivider.svelte';
 export { default as ThinkingIndicator } from './components/ThinkingIndicator.svelte';
 export { default as MessageItem } from './components/MessageItem.svelte';
 export { default as EmptyState } from './components/EmptyState.svelte';

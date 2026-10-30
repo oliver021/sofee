@@ -19,6 +19,9 @@ interface ThreadDto {
   message_count: number;
   created_at: string;
   updated_at: string;
+  /** Context cut points (roadmap §3.10): Compact's and Clear's sequence numbers. */
+  summary_through_seq?: number | null;
+  context_start_seq?: number | null;
 }
 
 interface MessageDto {
@@ -104,6 +107,12 @@ export function syncMessage(thread: Thread, message: ChatMessage): void {
   });
 }
 
+/** Resolves once every write already queued for the thread has reached the server. An agent run
+ * needs its thread to exist there first, so the send waits on this rather than racing the upsert. */
+export function threadSettled(threadId: string): Promise<void> {
+  return (chains[threadId] ?? Promise.resolve()).then(() => undefined);
+}
+
 export function syncMessageRemoved(threadId: string, messageId: string): void {
   if (!active) return;
   enqueue(threadId, () =>
@@ -125,6 +134,7 @@ function toMessage(dto: MessageDto): ChatMessage {
     createdAt: Date.parse(dto.created_at) || Date.now(),
     citations: dto.citations ?? undefined,
     attachmentIds: dto.attachment_ids ?? undefined,
+    seq: dto.seq,
   };
 }
 
@@ -140,5 +150,27 @@ export async function loadConversations(): Promise<Thread[]> {
     createdAt: Date.parse(detail.created_at) || Date.now(),
     mode: detail.mode,
     messages: detail.messages.map(toMessage),
+    summaryThroughSeq: detail.summary_through_seq ?? null,
+    contextStartSeq: detail.context_start_seq ?? null,
   }));
+}
+
+/** What the server knows about a thread's sequence numbers right now: each message's seq by its
+ * client id, and the two context cut points. Context dividers need these after Compact or Clear,
+ * because runs write their replies on the server and the client does not learn their seq otherwise. */
+export interface ThreadCutState {
+  readonly seqs: Record<string, number>;
+  readonly summaryThroughSeq: number | null;
+  readonly contextStartSeq: number | null;
+}
+
+export async function loadThreadCutState(threadId: string): Promise<ThreadCutState> {
+  const detail = await api<ThreadDetailDto>(`/threads/${encode(threadId)}`);
+  const seqs: Record<string, number> = {};
+  for (const message of detail.messages) seqs[message.id] = message.seq;
+  return {
+    seqs,
+    summaryThroughSeq: detail.summary_through_seq ?? null,
+    contextStartSeq: detail.context_start_seq ?? null,
+  };
 }

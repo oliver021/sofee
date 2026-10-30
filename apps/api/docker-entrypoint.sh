@@ -3,7 +3,8 @@
 # Entrypoint de la imagen `sofee-api`. Comandos:
 #
 #   serve     (default)   arranca el proceso web (uvicorn). NUNCA toca la BD.
-#   migrate               aplica `alembic upgrade head` y sale. Paso de release.
+#   migrate               aplica `alembic upgrade head` y crea las tablas del checkpointer
+#                         y del store del agente, y sale. Paso de release.
 #
 # Las migraciones se ejecutan en el job de release, una sola vez, y no en el
 # arranque de las réplicas (si no, cada réplica las disputaría).
@@ -18,11 +19,9 @@ case "$cmd" in
   serve)
     exec uvicorn app.main:app --host 0.0.0.0 --port "${PORT:-8000}" "$@"
     ;;
-  migrate)
-    exec alembic upgrade head
-    ;;
-  release)
-    exec alembic upgrade head
+  migrate|release)
+    alembic upgrade head
+    exec python -m app.cli setup-agent-storage
     ;;
   *)
     exec "$cmd" "$@"

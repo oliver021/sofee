@@ -26,6 +26,11 @@ class CatalogBindingOut(BaseModel):
     priority: int
     is_enabled: bool
     is_available: bool
+    # Capacidades del modelo del binding (se editan en el admin de providers).
+    supports_tools: bool | None = None
+    context_window: int | None = None
+    input_price_per_mtok: float | None = None
+    output_price_per_mtok: float | None = None
 
 
 class CatalogEntryCreate(BaseModel):
@@ -56,6 +61,10 @@ class CatalogEntryOut(BaseModel):
     is_enabled: bool
     sort_order: int
     is_available: bool
+    # Apta para el agente: hay un binding disponible y todos los disponibles admiten tools.
+    agent_ready: bool = False
+    # Ventana de contexto del primer binding disponible (null si ninguno tiene dato).
+    context_window: int | None = None
     created_at: datetime
     updated_at: datetime
     bindings: list[CatalogBindingOut] = []
@@ -68,3 +77,7 @@ class PublicCatalogEntry(BaseModel):
     description: str | None
     category: str
     is_available: bool
+    # Apta para el agente: hay un binding disponible y todos los disponibles admiten tools.
+    agent_ready: bool
+    # Ventana de contexto del primer binding disponible (para el medidor de contexto).
+    context_window: int | None

@@ -13,6 +13,7 @@ from ...schemas.provider import (
     CredentialOut,
     CredentialRotateRequest,
     CredentialRotateResponse,
+    ModelCapabilitiesUpdate,
     ModelOut,
     ModelSyncResult,
     ModelToggleRequest,
@@ -367,4 +368,46 @@ async def toggle_provider_model(
         ip_address=client_ip(request),
     )
     await db.commit()
+    return ModelOut.model_validate(model)
+
+
+@router.patch("/{provider_id}/models/{model_id}/capabilities", response_model=ModelOut)
+async def update_model_capabilities(
+    provider_id: uuid.UUID,
+    model_id: uuid.UUID,
+    payload: ModelCapabilitiesUpdate,
+    request: Request,
+    auth: AuthContext = Depends(get_current_auth),
+    _csrf=Depends(check_csrf),
+    db: AsyncSession = Depends(get_session),
+) -> ModelOut:
+    """Capacidades del modelo para el agente. `supports_tools` lo fija también "Probar como agente"."""
+    model = (
+        await db.execute(
+            select(ProviderModel).where(
+                ProviderModel.id == model_id,
+                ProviderModel.provider_id == provider_id,
+            )
+        )
+    ).scalar_one_or_none()
+    if model is None:
+        raise HTTPException(status_code=404, detail="Provider model not found")
+    changes = payload.model_dump(exclude_unset=True)
+    for field, value in changes.items():
+        setattr(model, field, value)
+    if changes:
+        await write_audit(
+            db,
+            action="provider.model_capabilities_updated",
+            actor_id=auth.user.id,
+            resource_type="provider",
+            resource_id=str(provider_id),
+            data={
+                "model_id": model.model_id,
+                "changes": payload.model_dump(exclude_unset=True, mode="json"),
+            },
+            ip_address=client_ip(request),
+        )
+    await db.commit()
+    await db.refresh(model)
     return ModelOut.model_validate(model)

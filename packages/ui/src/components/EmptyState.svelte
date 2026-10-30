@@ -1,18 +1,21 @@
 <!--
   ux-foundations.md §4.3 — "Empty thread: The canvas is the hero: greeting, three concrete
   starting moves, composer. No empty-box illustration."
+
+  roadmap U7: the starting moves come from the team's admin, per mode. The app passes them in
+  (falling back to its own copy when the server has none), so this component only lays them out.
 -->
 <script lang="ts">
   import type { Translate } from '@sofee/core';
 
   interface Props {
     t: Translate;
+    /** The starting moves to show, already resolved by the app. */
+    starters: readonly string[];
     onStarterSelect: (text: string) => void;
   }
 
-  let { t, onStarterSelect }: Props = $props();
-
-  let starters = $derived([t('thread.starter1'), t('thread.starter2'), t('thread.starter3')]);
+  let { t, starters, onStarterSelect }: Props = $props();
 </script>
 
 <div class="empty-state">

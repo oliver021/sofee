@@ -3,8 +3,11 @@
 Sofee is a **learning and research assistant** frontend — explicitly not a coding
 agent. It is built for people who are new to a team and need long, well-organised
 answers they can read from the top, not a fast back-and-forth. There is no backend:
-the assistant is a local, simulated token stream (see `packages/core/src/mock`), so
-the whole UI is demonstrable on its own.
+the answers come from a backend in `apps/api` (FastAPI) that runs a deep agent (`deepagents`
+on LangGraph): Learn, Research and Explore are three agent profiles, edited from the admin panel.
+The old simulated assistant (`packages/core/src/mock`) still runs behind `VITE_ASSISTANT=mock`, so
+the UI stays demonstrable on its own. To run the whole demo, see
+[Demo end to end](#demo-end-to-end) below.
 
 The two documents that define this app's behaviour and appearance in full live in
 [`docs/ux-foundations.md`](./docs/ux-foundations.md) (interaction, states, scroll,
@@ -43,9 +46,114 @@ you never have to think about it — `npm install` and `npm run dev`/`build` jus
 work. If you ever see stale token values, run `npm run build --workspace=@sofee/tokens`
 directly.
 
+## Demo end to end
+
+What you need: Docker (for Postgres), Node.js 20+ and [uv](https://docs.astral.sh/uv/), which
+installs the Python 3.12 that `apps/api` uses.
+
+**1. Databases.** Development on port 5432, tests on 5433:
+
+```bash
+docker compose up -d postgres postgres-test
+```
+
+**2. Frontends.** From the repository root:
+
+```bash
+npm install
+npm run build:admin    # the API serves the admin panel at /admin from apps/admin/dist
+```
+
+**3. API: dependencies, schema and the agent's tables.**
+
+```bash
+cd apps/api
+uv sync
+uv run alembic upgrade head
+uv run python -m app.cli setup-agent-storage   # LangGraph checkpointer and store tables
+```
+
+**4. Demo data.** `seed-demo` is idempotent, so you can run it again at any time:
+
+```bash
+uv run python -m app.cli seed-demo
+```
+
+Without a provider it creates the demo users, the 14 fictional team documents in
+`apps/api/demo/kb/`, version 1 of each agent profile and the starter questions. Passwords come from
+`SOFEE_DEMO_ADMIN_PASSWORD` and `SOFEE_DEMO_USER_PASSWORD`; if they are unset, they are generated and
+printed once. Without a provider the agent cannot answer live, so use replays (see below).
+
+With a real provider, export the keys in your shell. They are never written to the repository:
+
+```bash
+SOFEE_DEMO_PROVIDER_KIND=deepinfra \
+SOFEE_DEMO_API_KEY=... \
+SOFEE_DEMO_MAIN_MODEL=... \
+SOFEE_DEMO_WORKER_MODEL=... \
+uv run python -m app.cli seed-demo
+```
+
+This adds the provider and the "Sofee Pro" catalog entry (main model first, worker as the fallback).
+The seed never sets `supports_tools` by hand: it runs a real tool-calling probe on each model and
+keeps the result. Set `SOFEE_DEMO_TAVILY_API_KEY` to enable web search.
+
+**5. Run.** Provider and Tavily keys are stored encrypted, so `SECRET_ENCRYPTION_KEY` must be set
+first (in `apps/api/.env`, which is gitignored, or in your shell). Generate one with:
+
+```bash
+python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
+```
+
+```bash
+cd apps/api && uv run uvicorn app.main:app --reload   # API on http://localhost:8000
+```
+
+In another terminal, from the repository root:
+
+```bash
+npm run dev          # the app on http://localhost:5173, /api proxied to :8000
+npm run dev:admin    # the admin panel on http://localhost:5174/admin/
+```
+
+Sign in to the admin panel as the admin user, then in **Agente → Ajustes** you can switch the agent
+off for maintenance, edit the starter questions and set the replay map.
+
+**Plan B: replays.** If the provider or the network fails during a live demo, point the question to
+a run that already completed: in **Agente → Ajustes → Modo demo: runs grabados**, pair the question
+with that run's id (copy it from the Runs view). When someone asks that question, the server replays the recorded run's events with their
+original timing (gaps capped at 2 s) and makes no model call. The replay run is saved like any other,
+but it uses no tokens and is logged in the audit trail. Only completed runs can be replayed. So
+record the script once with the real provider before the demo.
+
+Environment variables for the demo:
+
+| Variable | Required | Notes |
+| -------- | -------- | ----- |
+| `SOFEE_DEMO_PROVIDER_KIND` | to add a provider | `vercel_gateway`, `deepinfra`, `nvidia_nim` or `openai_compatible` |
+| `SOFEE_DEMO_API_KEY` | with a provider | never logged or stored in clear text |
+| `SOFEE_DEMO_BASE_URL` | `openai_compatible` only | base URL of the endpoint |
+| `SOFEE_DEMO_MAIN_MODEL` | with a provider | primary binding of "Sofee Pro" |
+| `SOFEE_DEMO_WORKER_MODEL` | no | fallback binding; it must support tools too |
+| `SOFEE_DEMO_CONTEXT_WINDOW` | no | context window of both models, 128000 by default |
+| `SOFEE_DEMO_TAVILY_API_KEY` | no | enables `web_search` |
+| `SOFEE_DEMO_ADMIN_PASSWORD` / `SOFEE_DEMO_USER_PASSWORD` | no | otherwise generated and printed once |
+
+Tests for the backend, which never touch the network (they need `postgres-test` on 5433):
+
+```bash
+cd apps/api && uv run pytest
+```
+
+Production deployment, migrations and reverse proxy settings are in [`docs/deployment.md`](docs/deployment.md).
+
 ## Workspace layout
 
 ```
+apps/api/            FastAPI backend (Python, managed with uv): sessions, providers, the model
+                       catalog, the agent harness (`app/agent/`), the team knowledge base and the
+                       admin API. Its agent and demo commands are below.
+apps/admin/          Svelte admin panel, served by apps/api at /admin
 apps/web/            Vite + Svelte 5 app — assembles everything, owns all app state
 packages/tokens/      The six palettes as typed data -> generated CSS custom properties
 packages/ui/          Svelte components (rails, panels, menus, the Orbit composer,

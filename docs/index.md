@@ -125,6 +125,96 @@ El §15 del plan sugería fases. Con las decisiones de arriba, el orden es:
 
 ---
 
+## M9 — Harness del agente en `apps/api` (F1)
+
+**Objetivo:** un run real de punta a punta en la API, con SSE, cancelación y revisión del plan, y tests sin red.
+**Estado:** implementado y con tests (modelos falsos). Falta la prueba con un modelo real (ver el último punto).
+
+- [x] Migraciones: `agent_runs`, `agent_run_events`, `agent_profiles`, `message_feedback`, `app_settings` y las columnas de aptitud en `provider_models` y en el catálogo
+- [x] Tablas del checkpointer y del store de LangGraph en el paso `migrate` (`setup-agent-storage`), con pool de psycopg en el lifespan
+- [x] `models.py` (catálogo → `ChatOpenAI` con failover), `profiles.py` con defaults en código y `backends.py` con `/notes/`, `/kb/` y `/attachments/`
+- [x] `executor.py`: cancelación, límites (pasos, tiempo, subagentes y búsquedas) y cada evento persistido antes de difundirse
+- [x] `events.py` con el mapeo completo al protocolo v1
+- [x] Endpoints del contrato en `runs.py`: CSRF, propiedad del hilo (404 a otros usuarios) y auditoría de `agent.run_cancelled`
+- [x] El servidor escribe la respuesta del asistente; `POST /messages` con un mensaje de run responde 409
+- [x] Tests con modelo falso: run completo, cancelación, fallo del provider con failover, revisión del plan y reconexión del SSE
+- [ ] `curl -N` sobre un run real contra un provider real (pendiente: los tests no usan la red)
+
+## M10 — `apps/web` con streaming real (F2)
+
+**Objetivo:** las respuestas de Learn, Research y Explore llegan del agente, con el mock detrás de `VITE_ASSISTANT=mock`.
+**Estado:** implementado, con tests del reducer y del renderer de markdown. No se ha hecho una pasada en el navegador contra el backend.
+
+- [x] `RunClient` (crear run, EventSource, reconectar) y `AppState` delegando en él
+- [x] El fallo simulado y la latencia falsa salen del camino real; los errores se muestran con `run.failed`
+- [x] Detener, Continuar, Volver a generar y Reintentar conectados a los endpoints
+- [x] Markdown real: bloques de código con copiar, tablas, listas numeradas, enlaces, cursiva y citas `[n]` como `CitationRef`
+- [x] Al recargar con un run vivo, se reengancha al stream
+- [x] Medidor de contexto a partir de `usage`
+- [ ] Una conversación de Learn contra el modelo real, vista en el navegador y tras una recarga a mitad del stream
+
+## M11 — Conocimiento del equipo y fuentes (F3)
+
+**Objetivo:** una pregunta sobre un documento interno responde con citas a ese documento.
+**Estado:** implementado y con tests usando un modelo con guion. Falta la prueba con un modelo real.
+
+- [x] `kb_documents` con extracción de texto (md, txt, pdf) y búsqueda full-text de Postgres en español e inglés
+- [x] `/kb/` y `/attachments/` de solo lectura para el agente, con la copia en el store
+- [x] `search_team_docs` y `web_search` (Tavily, con la clave cifrada como las de los providers)
+- [x] Registro de fuentes por run, renumeración y detección de citas alucinadas
+- [x] Las citas de documentos y adjuntos abren el panel de adjuntos; las web abren una pestaña nueva
+- [ ] Una pregunta sobre un documento interno contra el modelo real, con citas comprobadas a mano
+
+## M12 — Superficie del agente en la UI (F4)
+
+**Objetivo:** el paso 3 del guion (Research de principio a fin) se puede hacer en la app.
+**Estado:** implementado, con tests de la lógica de vista y textos en `en` y `es`. No se ha recorrido el guion en el navegador.
+
+- [x] Bloque de plan dentro del mensaje: lista viva y resumen plegable al terminar
+- [x] Panel de herramientas agrupado por run y por subagente
+- [x] Tarjetas de subagentes con su tarea, su estado y su resumen plegable
+- [x] Revisión del plan en Research: aprobar, editar o continuar sin revisión. "Continuar sin revisión" se guarda solo en el navegador, por hilo
+- [x] "Archivos del agente" en el panel de adjuntos, con vista previa, copia y descarga `.md` (la exportación a PDF no está)
+- [x] Chips de direcciones en Explore y quiz plegable en Learn
+- [x] Texto nuevo por i18n en `en` y `es`, con las reglas de lint en verde
+- [ ] El guion de Research recorrido de principio a fin en el navegador
+
+## M13 — Admin del agente (F5)
+
+**Objetivo:** los pasos 1 y 5 del guion se hacen desde el admin sin tocar la base de datos.
+**Estado:** implementado, con tests de la API y del admin (el smoke del panel se hizo contra un servidor simulado).
+
+- [x] Vista Agente: perfiles por modo con versiones, diff lado a lado, rollback, herramientas, límites, revisión del plan e interruptor general
+- [x] Vista Conocimiento: subir (varios archivos), retirar, etiquetar y ver el estado de extracción
+- [x] Vista Runs: lista filtrable y detalle con la línea de tiempo de eventos
+- [x] Valoraciones: los pulgares abajo con su contexto, enlazados al run
+- [x] Catálogo: aptitud para agentes, contexto y precios, y "Probar como agente" con veredicto por binding
+- [x] Preguntas de arranque por modo e idioma, con vista previa
+- [x] Modo demo: runs grabados por pregunta (`replay.map`)
+- [x] Auditoría de cada cambio
+- [ ] Enlace a LangSmith en Runs: la interfaz existe, pero `trace_url` no se rellena todavía
+- [ ] Modelo distinto por subagente (roadmap §3.4): ni el perfil ni el admin lo admiten todavía
+- [ ] Pasos 1 y 5 del guion probados contra la API real y una base de datos con datos de verdad
+
+## M14 — Ensayo y blindaje de la demo (F6)
+
+**Objetivo:** la demo se puede levantar en limpio y tiene plan B si falla la red.
+**Estado:** `seed-demo` y el replay están implementados y con tests. El ensayo con cronómetro no se ha hecho.
+
+- [x] `python -m app.cli seed-demo` idempotente: usuarios de la demo, proveedor y "Sofee Pro" solo si hay variables `SOFEE_DEMO_*`, base de conocimiento con 14 documentos ficticios de un equipo, versión 1 de cada perfil, preguntas de arranque y clave de Tavily opcional
+- [x] Aptitud de "Sofee Pro" fijada por la prueba real de herramientas, nunca a mano en el seed
+- [x] Modo replay: si la pregunta coincide con `replay.map`, se reemiten los eventos de un run completado con su ritmo (pausas de 2 s como máximo), sin modelo y sin tokens, con auditoría
+- [x] README raíz con la demo de extremo a extremo; `docs/deployment.md` con las variables nuevas, las migraciones y el SSE tras un proxy
+- [ ] `POST /runs/{id}/replay` y el botón "Reproducir" del admin: no construidos, el mapa de preguntas cubre el caso
+- [ ] Ensayo con cronómetro: Research en menos de 90 s, con los límites ajustados y el TTFT medido con el modelo elegido
+- [ ] Medir el TTFT real con el modelo elegido: la caché de prompts de `deepagents` no actúa con `ChatOpenAI`, así que no hay ahorro que contar
+
+F0 (spike y decisiones) no tiene milestone propio: sus decisiones están en
+[`deep-agent-api-notes.md`](./deep-agent-api-notes.md) y las versiones fijadas en `apps/api/pyproject.toml`.
+Las fases y sus criterios de aceptación están en [`deep-agent-roadmap.md`](./deep-agent-roadmap.md) §4.
+
+---
+
 ## Notas de ejecución
 
 - El estado real se actualiza en este mismo archivo a medida que se avanza.

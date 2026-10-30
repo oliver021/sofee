@@ -27,3 +27,4 @@ export { default as IconCheck } from './IconCheck.svelte';
 export { default as IconExternalLink } from './IconExternalLink.svelte';
 export { default as IconCompact } from './IconCompact.svelte';
 export { default as IconTrash } from './IconTrash.svelte';
+export { default as IconDownload } from './IconDownload.svelte';

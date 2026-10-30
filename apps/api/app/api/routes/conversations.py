@@ -6,6 +6,8 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ...db import get_session
+from ...agent.executor import ACTIVE_STATUSES
+from ...models.agent import AgentRun
 from ...models.thread import Message, Thread
 from ...schemas import (
     MessageCreate,
@@ -52,6 +54,28 @@ async def _owned_thread(
     return thread
 
 
+async def has_active_run(db: AsyncSession, thread_pk: uuid.UUID) -> bool:
+    """Hay un run en cola, en curso o pausado esperando revisión en este hilo."""
+    row = (
+        await db.execute(
+            select(AgentRun.id)
+            .where(AgentRun.thread_id == thread_pk, AgentRun.status.in_(ACTIVE_STATUSES))
+            .limit(1)
+        )
+    ).first()
+    return row is not None
+
+
+async def is_server_owned(db: AsyncSession, message_id: uuid.UUID) -> bool:
+    """Un mensaje es del servidor si algún run lo tiene como respuesta del asistente."""
+    row = (
+        await db.execute(
+            select(AgentRun.id).where(AgentRun.assistant_message_id == message_id).limit(1)
+        )
+    ).first()
+    return row is not None
+
+
 async def _thread_out(db: AsyncSession, thread: Thread, *, count: bool = True) -> ThreadOut:
     message_count = 0
     if count:
@@ -67,6 +91,8 @@ async def _thread_out(db: AsyncSession, thread: Thread, *, count: bool = True) -
         message_count=message_count,
         created_at=thread.created_at,
         updated_at=thread.updated_at,
+        summary_through_seq=thread.summary_through_seq,
+        context_start_seq=thread.context_start_seq,
     )
 
 
@@ -90,6 +116,8 @@ async def list_threads(
             message_count=count,
             created_at=thread.created_at,
             updated_at=thread.updated_at,
+            summary_through_seq=thread.summary_through_seq,
+            context_start_seq=thread.context_start_seq,
         )
         for thread, count in rows.all()
     ]
@@ -175,6 +203,9 @@ async def delete_thread(
     db: AsyncSession = Depends(get_session),
 ) -> None:
     thread = await _owned_thread(db, auth.user.id, thread_id)
+    if await has_active_run(db, thread.id):
+        # Borrar el hilo borraría sus runs a mitad de ejecución: primero hay que detenerlo.
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="run_active")
     await db.delete(thread)
     await db.commit()
 
@@ -200,6 +231,9 @@ async def upsert_message(
             )
         )
     ).scalar_one_or_none()
+    if message is not None and await is_server_owned(db, message.id):
+        # La respuesta de un run la escribe el servidor (roadmap §3.9).
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="server_owned")
     if message is None:
         message = Message(
             thread_id=thread.id,

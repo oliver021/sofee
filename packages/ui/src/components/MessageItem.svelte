@@ -1,22 +1,31 @@
-<!--
-  ux-foundations.md §4.4 — message affordances. Controls appear on hover AND keyboard focus
-  (never hover-only). §4.3 — error/stopped states render inline, in the thread, never as a
-  toast. §8 — role="article" with an accessible name identifying the speaker.
--->
 <script lang="ts">
-  import type { Citation, MessageRole, MessageStatus, Translate } from '@sofee/core';
+  import type { Snippet } from 'svelte';
+  import type { Citation, MessageRole, MessageStatus, RunErrorCode, Translate } from '@sofee/core';
   import { IconCopy, IconEdit, IconRefresh, IconThumbsDown, IconThumbsUp } from '@sofee/icons';
-  import CitationRef from './CitationRef.svelte';
-  import { formatMessage } from '../format-message.js';
+  import Markdown from './Markdown.svelte';
+  import RunErrorBox from './RunErrorBox.svelte';
+  import ThinkingIndicator from './ThinkingIndicator.svelte';
 
   interface Props {
     id: string;
     role: MessageRole;
     status: MessageStatus;
     text: string;
-    citations?: Citation[];
+    citations?: readonly Citation[];
+    /** Set in the error state: picks the inline copy and actions (roadmap U6). */
+    errorCode?: RunErrorCode;
+    /** Pre-formatted local time a quota-exceeded send can be retried. */
+    errorResetLabel?: string;
+    /** The run's latest status text, shown while the reply has not started (roadmap U3). */
+    statusText?: string;
+    /** Good or bad, when the reader has rated this reply (roadmap U15-lite). */
+    feedback?: 'good' | 'bad';
     copied?: boolean;
     t: Translate;
+    /** The agent's plan, sub-agents and plan review: shown above the reply text. */
+    activity?: Snippet;
+    /** The reply's sources, quiz and directions: shown under the reply text. */
+    footer?: Snippet;
     onCopy: () => void;
     onEdit?: () => void;
     onRegenerate?: () => void;
@@ -24,6 +33,9 @@
     onBadResponse?: () => void;
     onRetry?: () => void;
     onContinue?: () => void;
+    onChangeModel?: () => void;
+    /** Opens a team document or attachment cited in the reply (roadmap U4). */
+    onOpenSource?: (citation: Citation, trigger: HTMLElement) => void;
   }
 
   let {
@@ -32,8 +44,14 @@
     status,
     text,
     citations = [],
+    errorCode,
+    errorResetLabel,
+    statusText = '',
+    feedback,
     copied = false,
     t,
+    activity,
+    footer,
     onCopy,
     onEdit,
     onRegenerate,
@@ -41,14 +59,13 @@
     onBadResponse,
     onRetry,
     onContinue,
+    onChangeModel,
+    onOpenSource,
   }: Props = $props();
 
-  let blocks = $derived(formatMessage(text));
   let speakerLabel = $derived(role === 'user' ? t('message.you') : t('message.assistant'));
-
-  function citationFor(index: number): Citation | undefined {
-    return citations.find((c) => c.index === index);
-  }
+  // The reply has not started: the indicator holds its height until the first text arrives.
+  let waiting = $derived(role === 'assistant' && text.length === 0 && status === 'pending');
 </script>
 
 <!-- <article> already carries an implicit role of "article" (HTML-AAM) — ux-foundations.md
@@ -63,43 +80,21 @@
   tabindex="-1"
 >
   <div class="body">
-    {#each blocks as block, blockIndex (blockIndex)}
-      {#if block.type === 'heading'}
-        <svelte:element this={block.level === 2 ? 'h3' : 'h4'} class="heading">
-          {#each block.segments as segment, i (i)}
-            {#if segment.type === 'bold'}<strong>{segment.value}</strong>
-            {:else if segment.type === 'citation'}{@const c = citationFor(
-                segment.index,
-              )}{#if c}<CitationRef citation={c} {t} />{/if}
-            {:else}{segment.value}{/if}
-          {/each}
-        </svelte:element>
-      {:else if block.type === 'paragraph'}
-        <p>
-          {#each block.segments as segment, i (i)}
-            {#if segment.type === 'bold'}<strong>{segment.value}</strong>
-            {:else if segment.type === 'citation'}{@const c = citationFor(
-                segment.index,
-              )}{#if c}<CitationRef citation={c} {t} />{/if}
-            {:else}{segment.value}{/if}
-          {/each}
-        </p>
-      {:else if block.type === 'bullets'}
-        <ul>
-          {#each block.items as item, itemIndex (itemIndex)}
-            <li>
-              {#each item as segment, i (i)}
-                {#if segment.type === 'bold'}<strong>{segment.value}</strong>
-                {:else if segment.type === 'citation'}{@const c = citationFor(
-                    segment.index,
-                  )}{#if c}<CitationRef citation={c} {t} />{/if}
-                {:else}{segment.value}{/if}
-              {/each}
-            </li>
-          {/each}
-        </ul>
-      {/if}
-    {/each}
+    {#if activity && role === 'assistant'}
+      <div class="message-activity">{@render activity()}</div>
+    {/if}
+
+    {#if role === 'user'}
+      <p class="user-text">{text}</p>
+    {:else if text.length > 0}
+      <Markdown {text} {citations} {t} {onOpenSource} />
+    {:else if waiting || status === 'streaming'}
+      <ThinkingIndicator {t} {statusText} />
+    {/if}
+
+    {#if footer && role === 'assistant'}
+      <div class="message-footer">{@render footer()}</div>
+    {/if}
 
     {#if status === 'stopped'}
       <p class="inline-status">
@@ -114,13 +109,7 @@
     {/if}
 
     {#if status === 'error'}
-      <div class="error-box">
-        <p class="error-title">{t('thread.errorTitle')}</p>
-        <p>{t('thread.errorBody')}</p>
-        {#if onRetry}
-          <button type="button" class="text-action" onclick={onRetry}>{t('thread.retry')}</button>
-        {/if}
-      </div>
+      <RunErrorBox code={errorCode} resetLabel={errorResetLabel} {t} {onRetry} {onChangeModel} />
     {/if}
   </div>
 
@@ -160,7 +149,9 @@
       <button
         type="button"
         class="action-btn"
+        class:pressed={feedback === 'good'}
         aria-label={t('message.goodResponse')}
+        aria-pressed={feedback === 'good'}
         title={t('message.goodResponse')}
         onclick={onGoodResponse}
       >
@@ -171,7 +162,9 @@
       <button
         type="button"
         class="action-btn"
+        class:pressed={feedback === 'bad'}
         aria-label={t('message.badResponse')}
+        aria-pressed={feedback === 'bad'}
         title={t('message.badResponse')}
         onclick={onBadResponse}
       >
@@ -204,37 +197,38 @@
     max-width: 100%;
   }
 
+  /* What the user typed is shown as typed: no markdown, but their line breaks are kept. */
+  .user-text {
+    margin: 0;
+    white-space: pre-wrap;
+  }
+
   .body {
-    /* Kept in sync with ThinkingIndicator's min-height so the first streamed line does not
-       shift layout when it replaces the indicator (§3.3). */
+    /* min-width stops a wide table or code block from stretching the flex column past the
+       viewport. */
+    min-width: 0;
     line-height: 1.6;
     font-size: 15px;
     color: var(--p-ink);
   }
 
-  .body :global(p) {
-    margin: 0 0 var(--space-3);
+  .message-activity,
+  .message-footer {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-3);
+    min-width: 0;
   }
-  .body :global(p:last-child) {
-    margin-bottom: 0;
+
+  /* The wrappers always render for a reply, so the spacing only applies once they hold something:
+     an empty wrapper must not push the text down. The children come from the parent's snippets,
+     which this stylesheet cannot see, hence the :global(). */
+  :global(.message-activity:has(> *)) {
+    margin-bottom: var(--space-3);
   }
-  .body :global(.heading) {
-    margin: var(--space-4) 0 var(--space-2);
-    font-family: var(--p-display);
-    color: var(--p-ink);
-  }
-  .body :global(h3.heading) {
-    font-size: 17px;
-  }
-  .body :global(h4.heading) {
-    font-size: 15px;
-  }
-  .body :global(ul) {
-    margin: 0 0 var(--space-3);
-    padding-left: 1.3em;
-  }
-  .body :global(li) {
-    margin-bottom: var(--space-1);
+
+  :global(.message-footer:has(> *)) {
+    margin-top: var(--space-4);
   }
 
   /* ux-foundations.md §6: "Alt + [Up/Down] — Move between messages" moves focus here
@@ -263,19 +257,8 @@
     letter-spacing: 0.09em;
   }
 
-  .error-box {
-    border: 1px solid color-mix(in oklab, var(--sem-critical) 45%, transparent);
-    background: color-mix(in oklab, var(--sem-critical) 10%, transparent);
-    border-radius: var(--radius-panel);
-    padding: var(--space-3) var(--space-4);
-  }
-
-  .error-title {
-    font-weight: 600;
-    color: var(--sem-critical);
-  }
-
   .text-action {
+    min-height: var(--target-min);
     border: none;
     background: none;
     color: var(--p-acc);
@@ -283,6 +266,11 @@
     font-weight: 600;
     cursor: pointer;
     padding: 0;
+  }
+
+  .text-action:focus-visible {
+    outline: 2px solid var(--p-acc);
+    outline-offset: 2px;
   }
 
   .actions {
@@ -301,12 +289,13 @@
     opacity: 1;
   }
 
+  /* ux-foundations.md §8: 44 x 44 px targets for every control, the message actions included. */
   .action-btn {
     display: flex;
     align-items: center;
     justify-content: center;
-    width: 32px;
-    height: 32px;
+    width: var(--target-min);
+    height: var(--target-min);
     border-radius: var(--radius-icon-btn);
     border: 1px solid transparent;
     background: transparent;
@@ -318,6 +307,11 @@
     color: var(--p-ink);
     background: color-mix(in oklab, var(--p-ink) 8%, transparent);
     border-color: var(--p-line);
+  }
+
+  .action-btn.pressed {
+    color: var(--p-acc);
+    border-color: var(--p-line-2);
   }
 
   .action-btn:focus-visible {

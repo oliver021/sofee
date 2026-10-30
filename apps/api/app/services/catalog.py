@@ -55,6 +55,17 @@ async def bindings_with_availability(
     return result
 
 
+def is_agent_ready(
+    rows: list[tuple[ModelCatalogBinding, ProviderModel, Provider, bool]],
+) -> bool:
+    """Apta para agentes: hay al menos un binding disponible y todos los disponibles admiten tools.
+
+    `supports_tools` es verificado por una prueba real (null o False cuenta como no apto).
+    """
+    available = [model for _, model, _, ok in rows if ok]
+    return bool(available) and all(model.supports_tools is True for model in available)
+
+
 async def entry_is_available(db: AsyncSession, entry_id: uuid.UUID) -> bool:
     rows = await bindings_with_availability(db, entry_id)
     return any(available for _, _, _, available in rows)
@@ -78,6 +89,7 @@ async def load_entry(db: AsyncSession, entry_id: uuid.UUID) -> ModelCatalogEntry
 __all__ = [
     "bindings_with_availability",
     "entry_is_available",
+    "is_agent_ready",
     "load_entry",
     "resolve_entry",
 ]

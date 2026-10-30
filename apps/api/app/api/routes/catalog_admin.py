@@ -1,13 +1,23 @@
+import asyncio
 import uuid
+from decimal import Decimal
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from ...agent.probe import (
+    NO_TOOL_CALL,
+    REJECTED,
+    SUPPORTS,
+    ProbeResult,
+    probe_tool_calling,
+)
 from ...db import get_session
 from ...models.catalog import ModelCatalogBinding, ModelCatalogEntry
-from ...models.provider import ProviderModel
+from ...models.provider import Provider, ProviderModel
+from ...schemas.agent_admin import AgentTestOut, AgentTestResultOut
 from ...schemas.catalog import (
     CatalogBindingCreate,
     CatalogBindingOut,
@@ -17,7 +27,8 @@ from ...schemas.catalog import (
     CatalogEntryUpdate,
 )
 from ...services.audit import write_audit
-from ...services.catalog import bindings_with_availability
+from ...services.catalog import bindings_with_availability, is_agent_ready
+from ...services.providers import resolve_provider_secret
 from ..deps import AuthContext, check_csrf, client_ip, get_current_auth, require_admin
 
 router = APIRouter(
@@ -30,6 +41,10 @@ async def _load_entry(db: AsyncSession, entry_id: uuid.UUID) -> ModelCatalogEntr
     if entry is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Entry not found")
     return entry
+
+
+def _money(value: Decimal | None) -> float | None:
+    return None if value is None else float(value)
 
 
 async def _serialize(db: AsyncSession, entry: ModelCatalogEntry) -> CatalogEntryOut:
@@ -45,9 +60,15 @@ async def _serialize(db: AsyncSession, entry: ModelCatalogEntry) -> CatalogEntry
             priority=binding.priority,
             is_enabled=binding.is_enabled,
             is_available=available,
+            supports_tools=model.supports_tools,
+            context_window=model.context_window,
+            input_price_per_mtok=_money(model.input_price_per_mtok),
+            output_price_per_mtok=_money(model.output_price_per_mtok),
         )
         for binding, model, provider, available in rows
     ]
+    # Igual que el catálogo público: la ventana de contexto sale del primer binding disponible.
+    context_window = next((model.context_window for _, model, _, ok in rows if ok), None)
     return CatalogEntryOut(
         id=entry.id,
         slug=entry.slug,
@@ -57,6 +78,8 @@ async def _serialize(db: AsyncSession, entry: ModelCatalogEntry) -> CatalogEntry
         is_enabled=entry.is_enabled,
         sort_order=entry.sort_order,
         is_available=any(b.is_available for b in bindings),
+        agent_ready=is_agent_ready(rows),
+        context_window=context_window,
         created_at=entry.created_at,
         updated_at=entry.updated_at,
         bindings=bindings,
@@ -283,3 +306,81 @@ async def remove_binding(
     await db.commit()
     await db.refresh(entry)
     return await _serialize(db, entry)
+
+
+_UNAVAILABLE_MESSAGE = (
+    "El binding no está disponible: revisa que esté habilitado, que su modelo y su provider lo estén "
+    "y que el provider tenga una key activa."
+)
+
+
+@router.post("/{entry_id}/agent-test", response_model=AgentTestOut)
+async def agent_test_entry(
+    entry_id: uuid.UUID,
+    request: Request,
+    auth: AuthContext = Depends(get_current_auth),
+    _csrf=Depends(check_csrf),
+    db: AsyncSession = Depends(get_session),
+) -> AgentTestOut:
+    """Probar como agente: una llamada real con herramienta trivial por cada binding disponible.
+
+    Fija `supports_tools` del modelo según el resultado: `supports` -> true; `no_tool_call` o
+    `rejected` -> false; `inconclusive` (red, 5xx, 404...) lo deja como estaba. Cuesta tokens reales.
+    """
+    entry = await _load_entry(db, entry_id)
+    rows = await bindings_with_availability(db, entry.id)
+
+    targets: list[tuple[int, ProviderModel, Provider, str]] = []
+    for index, (_binding, model, provider, available) in enumerate(rows):
+        if not available:
+            continue
+        api_key = await resolve_provider_secret(db, provider.id)
+        if api_key:
+            targets.append((index, model, provider, api_key))
+
+    outcomes = await asyncio.gather(
+        *(probe_tool_calling(provider, model, api_key) for _, model, provider, api_key in targets)
+    )
+    outcome_by_index: dict[int, ProbeResult] = {}
+    for (index, model, _provider, _key), outcome in zip(targets, outcomes):
+        outcome_by_index[index] = outcome
+        if outcome.verdict == SUPPORTS:
+            model.supports_tools = True
+        elif outcome.verdict in (NO_TOOL_CALL, REJECTED):
+            model.supports_tools = False
+
+    results: list[AgentTestResultOut] = []
+    for index, (binding, model, provider, _available) in enumerate(rows):
+        outcome = outcome_by_index.get(index)
+        results.append(
+            AgentTestResultOut(
+                binding_id=binding.id,
+                provider_model_id=model.id,
+                provider_name=provider.name,
+                model_id=model.model_id,
+                verdict=outcome.verdict if outcome is not None else "skipped",
+                supports_tools=model.supports_tools,
+                message=outcome.message if outcome is not None else _UNAVAILABLE_MESSAGE,
+                latency_ms=outcome.latency_ms if outcome is not None else None,
+            )
+        )
+
+    await write_audit(
+        db,
+        action="catalog.agent_tested",
+        actor_id=auth.user.id,
+        resource_type="catalog_entry",
+        resource_id=str(entry.id),
+        data={
+            "slug": entry.slug,
+            "results": [
+                {"model_id": result.model_id, "verdict": result.verdict, "supports_tools": result.supports_tools}
+                for result in results
+            ],
+        },
+        ip_address=client_ip(request),
+    )
+    await db.commit()
+    await db.refresh(entry)
+    entry_out = await _serialize(db, entry)
+    return AgentTestOut(results=results, agent_ready=entry_out.agent_ready, entry=entry_out)

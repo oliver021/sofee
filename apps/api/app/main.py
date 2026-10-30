@@ -1,3 +1,5 @@
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI
@@ -7,16 +9,23 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
 from starlette.responses import Response
 
+from .agent.executor import recover_orphaned_runs
+from .agent.persistence import agent_storage_lifespan
 from .api.routes import (
     admin,
+    agent_admin,
     audit,
     auth,
     catalog,
     catalog_admin,
     conversations,
+    integrations_admin,
+    kb_admin,
     me,
     providers,
     providers_admin,
+    runs,
+    runs_admin,
     storage,
 )
 from .config import settings
@@ -71,6 +80,14 @@ def _default_web_dist_dir() -> Path:
     return Path(__file__).resolve().parents[1].parent / "web" / "dist"
 
 
+@asynccontextmanager
+async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
+    async with agent_storage_lifespan(app):
+        # Un proceso nuevo no tiene tareas de runs: los que quedaron en curso se cierran.
+        await recover_orphaned_runs()
+        yield
+
+
 def create_app(
     *,
     cors_allowed_origins: list[str] | None = None,
@@ -87,6 +104,8 @@ def create_app(
         title="Sofee API",
         version="0.1.0",
         description="Backend Sofee — auth por sesión, providers LLM y panel admin.",
+        # Pool de psycopg del checkpointer y del store del agente (ver app/agent/persistence.py).
+        lifespan=_lifespan,
     )
 
     if origins:
@@ -108,7 +127,12 @@ def create_app(
     app.include_router(providers_admin.router, prefix="/api/v1")
     app.include_router(catalog.router, prefix="/api/v1")
     app.include_router(catalog_admin.router, prefix="/api/v1")
+    app.include_router(runs.router, prefix="/api/v1")
     app.include_router(storage.router, prefix="/api/v1")
+    app.include_router(kb_admin.router, prefix="/api/v1")
+    app.include_router(integrations_admin.router, prefix="/api/v1")
+    app.include_router(agent_admin.router, prefix="/api/v1")
+    app.include_router(runs_admin.router, prefix="/api/v1")
 
     admin_dir = (
         Path(settings.admin_dist_dir)

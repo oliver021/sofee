@@ -7,6 +7,11 @@
   box-sizing: border-box;
 }
 
+/* The UA's [hidden] rule loses to any component `display` rule; tabs rely on it. */
+[hidden] {
+  display: none !important;
+}
+
 html,
 body {
   height: 100%;
@@ -162,6 +167,14 @@ a {
   border-bottom: none;
 }
 
+/* Long text (questions, answers, reasons) wraps instead of stretching the table. */
+.table td.wrap {
+  white-space: normal;
+  min-width: 220px;
+  max-width: 360px;
+  overflow-wrap: anywhere;
+}
+
 .table tbody tr:hover {
   background: color-mix(in oklab, var(--p-hi) 60%, transparent);
 }
@@ -175,9 +188,11 @@ a {
   font-weight: 600;
 }
 
+/* Text on a tinted background uses the scale colour itself; the *-ink tokens are for filled
+   surfaces only (a dark ink on a dark palette is unreadable). */
 .badge.ok {
   background: color-mix(in oklab, var(--sem-success) 18%, transparent);
-  color: var(--sem-success-ink);
+  color: var(--sem-success);
 }
 
 .badge.off {
@@ -187,7 +202,12 @@ a {
 
 .badge.danger {
   background: color-mix(in oklab, var(--sem-critical) 16%, transparent);
-  color: var(--sem-critical-ink);
+  color: var(--sem-critical);
+}
+
+.badge.warn {
+  background: color-mix(in oklab, var(--sem-warning) 18%, transparent);
+  color: var(--sem-warning);
 }
 
 .row-actions {
@@ -219,7 +239,7 @@ a {
 }
 
 .error-text {
-  color: var(--sem-critical-ink);
+  color: var(--sem-critical);
   font-size: 13px;
 }
 
@@ -263,4 +283,72 @@ a {
 
 .empty p {
   margin: 0;
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+.link {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--p-acc);
+  text-decoration: none;
+  font-size: 13.5px;
+}
+
+.link:hover {
+  text-decoration: underline;
+}
+
+.pre {
+  margin: 0;
+  padding: 12px;
+  max-height: 360px;
+  overflow: auto;
+  border: 1px solid var(--p-line);
+  border-radius: 10px;
+  background: var(--p-surf-2);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 12.5px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.stack {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.row-wrap {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.section-title {
+  margin: 0 0 10px;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.notice {
+  margin: 0;
+  padding: 10px 12px;
+  border: 1px solid var(--sem-warning);
+  border-radius: 10px;
+  color: var(--p-ink);
+  font-size: 13.5px;
 }

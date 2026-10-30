@@ -4,6 +4,7 @@
   import ConfirmDialog from '../../components/ConfirmDialog.svelte';
   import Drawer from '../../components/Drawer.svelte';
   import { api } from '../../lib/api.js';
+  import { formatInt } from '../../lib/format.js';
   import { ui } from '../../lib/ui.svelte.js';
   import type { CatalogEntry } from '../../lib/types.js';
   import CatalogBindingsSection from './CatalogBindingsSection.svelte';
@@ -103,6 +104,8 @@
           <th>Categoría</th>
           <th>Visible</th>
           <th>Disponible</th>
+          <th>Agentes</th>
+          <th>Contexto</th>
           <th>Modelos</th>
           <th>Acciones</th>
         </tr>
@@ -125,6 +128,16 @@
               {:else}
                 <span class="badge danger">sin binding activo</span>
               {/if}
+            </td>
+            <td>
+              {#if e.agent_ready}
+                <span class="badge ok">Apto para agentes</span>
+              {:else}
+                <span class="badge off">No apto</span>
+              {/if}
+            </td>
+            <td class="tabular-nums muted">
+              {e.context_window === null ? '—' : `${formatInt(e.context_window)} tok`}
             </td>
             <td class="muted">{e.bindings.length}</td>
             <td>

@@ -60,6 +60,9 @@ class ThreadOut(BaseModel):
     message_count: int
     created_at: datetime
     updated_at: datetime
+    # Puntos de corte del contexto (Compactar y Limpiar, roadmap §3.10).
+    summary_through_seq: int | None = None
+    context_start_seq: int | None = None
 
 
 class ThreadDetail(ThreadOut):

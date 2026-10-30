@@ -1,5 +1,6 @@
 import uuid
 from datetime import datetime
+from decimal import Decimal
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -62,6 +63,20 @@ class ModelOut(BaseModel):
     model_id: str
     display_name: str
     is_enabled: bool
+    # Aptitud para agentes. `supports_tools` lo fija la prueba del catálogo; null = no probado.
+    supports_tools: bool | None = None
+    context_window: int | None = None
+    input_price_per_mtok: float | None = None
+    output_price_per_mtok: float | None = None
+
+
+class ModelCapabilitiesUpdate(BaseModel):
+    """Solo se cambian los campos enviados; null borra el dato (queda desconocido)."""
+
+    supports_tools: bool | None = None
+    context_window: int | None = Field(default=None, ge=1, le=10_000_000)
+    input_price_per_mtok: Decimal | None = Field(default=None, ge=0, max_digits=12, decimal_places=4)
+    output_price_per_mtok: Decimal | None = Field(default=None, ge=0, max_digits=12, decimal_places=4)
 
 
 class ModelToggleRequest(BaseModel):

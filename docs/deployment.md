@@ -48,7 +48,9 @@ las migraciones **no** se ejecutan en el arranque del proceso web (ver §3).
 ## 3. Release en dos pasos (migraciones aparte)
 
 Las migraciones de Alembic corren una sola vez en el **paso de release**, no al
-arrancar cada réplica (si no, N réplicas las disputarían).
+arrancar cada réplica (si no, N réplicas las disputarían). El paso `migrate` del contenedor hace dos
+cosas: `alembic upgrade head` y `python -m app.cli setup-agent-storage`, que crea las tablas del
+checkpointer y del store de LangGraph. Las dos son idempotentes y usan el mismo `DATABASE_URL`.
 
 ```bash
 # Paso A — migraciones (una sola ejecución):
@@ -86,6 +88,26 @@ Mínimas en producción:
 | `CORS_ALLOWED_ORIGINS`                  | no          | vacío = mismo origen                                                                                             |
 | `STORAGE_BACKEND` / `STORAGE_LOCAL_DIR` | no          | `local` por defecto; `s3` pendiente de implementar                                                               |
 | `WEB_DIST_DIR` / `ADMIN_DIST_DIR`       | no          | rutas a los `dist` de `apps/web` y `apps/admin`; en la imagen apuntan a `/apps/web_dist` y `/apps/admin_dist`    |
+| `LANGSMITH_TRACING`                     | no          | `true` activa las trazas de LangChain en LangSmith. Ver §9: el enlace de la traza aún no se guarda en el run.   |
+| `LANGSMITH_API_KEY`                     | si hay LangSmith | secreto: va en el gestor de secretos, nunca en el repositorio ni en la imagen.                              |
+| `LANGSMITH_PROJECT`                     | no          | proyecto de LangSmith donde caen las trazas (por defecto, `default`).                                            |
+
+`LANGGRAPH_STRICT_MSGPACK` lo fija la propia aplicación a `true` al importar el paquete del agente
+(`app/agent/__init__.py`). No hace falta definirla; ponerla a `false` desactiva la restricción de tipos al
+deserializar el checkpointer.
+
+Variables de la demo (`SOFEE_DEMO_*`): solo las lee `python -m app.cli seed-demo`, en entornos de demo y de
+prueba. En producción no se ejecuta el seed de la demo. Ninguna de estas claves va al repositorio.
+
+| Variable                                       | Notas                                                                                       |
+| ---------------------------------------------- | ------------------------------------------------------------------------------------------- |
+| `SOFEE_DEMO_PROVIDER_KIND`                     | `vercel_gateway`, `deepinfra`, `nvidia_nim` o `openai_compatible`. Sin ella no se crea proveedor. |
+| `SOFEE_DEMO_API_KEY`                           | key del provider de la demo. Se cifra con `SECRET_ENCRYPTION_KEY`.                          |
+| `SOFEE_DEMO_BASE_URL`                          | obligatoria solo con `openai_compatible`.                                                   |
+| `SOFEE_DEMO_MAIN_MODEL` / `SOFEE_DEMO_WORKER_MODEL` | modelo principal de "Sofee Pro" y su respaldo (el respaldo también debe admitir herramientas). |
+| `SOFEE_DEMO_CONTEXT_WINDOW`                    | ventana de contexto de los dos modelos. Por defecto, 128000.                                |
+| `SOFEE_DEMO_TAVILY_API_KEY`                    | activa `web_search`. Si ya hay una clave activa, el seed no la reemplaza.                   |
+| `SOFEE_DEMO_ADMIN_PASSWORD` / `SOFEE_DEMO_USER_PASSWORD` | contraseñas de las cuentas de la demo. Si faltan, se generan y se imprimen una vez.   |
 
 Generar la clave de cifrado (una vez, guardarla fuera del repo):
 
@@ -159,7 +181,7 @@ Las migraciones se corren como job aparte con el mismo `image` pero comando
 - **Escalado horizontal:** el rate limit de login usa la tabla `login_attempts`
   (compartida), así que funciona multinodo sin Redis. Si llegara a saturarse,
   migrar ese contador interno a Redis es un cambio localizado en
-  `app/services/ratelimit.py`.
+  `app/services/ratelimit.py`. **El agente no escala así todavía:** ver §9.
 
 ## 7. Endurecimiento aplicado (M7)
 
@@ -188,3 +210,60 @@ Las migraciones se corren como job aparte con el mismo `image` pero comando
   `messages.attachment_ids`; la descarga es same-origin y requiere sesión.
 - `storage_objects` sigue en `STORAGE_LOCAL_DIR`: montar un volumen persistente en
   producción o migrar a S3 (pendiente).
+
+## 9. Agente, demo y streaming (M9–M14)
+
+### Una sola réplica de la API
+
+Los runs del agente son tareas asyncio dentro del proceso, y el SSE se difunde en memoria. Con dos
+réplicas, un cliente conectado a una no vería los eventos de un run que ejecuta la otra, y al arrancar,
+`recover_orphaned_runs` cerraría como fallidos los runs que la otra réplica tenía en curso. Hasta que se
+añada `LISTEN/NOTIFY` de Postgres, **la API corre con `replicas: 1`**. Los runs pausados (`interrupted`)
+no se tocan al arrancar: siguen reanudables desde el checkpointer.
+
+### SSE detrás de un proxy
+
+La API envía `X-Accel-Buffering: no` y un comentario de latido (`: ping`) cada 15 segundos. Aun así, el
+proxy debe dejar pasar el stream sin bufferizar:
+
+```nginx
+location /api/v1/runs/ {
+    proxy_pass http://sofee-api:8000;
+    proxy_http_version 1.1;
+    proxy_set_header Connection "";
+    proxy_buffering off;
+    proxy_read_timeout 1h;
+}
+```
+
+Con Caddy, en el `reverse_proxy` de esa ruta: `flush_interval -1`.
+
+### Kill switch y replay
+
+- `agent.enabled = false` (admin → Agente → Ajustes) hace que los runs nuevos respondan 503. Un run ya en
+  marcha termina.
+- El modo demo (`replay.map`) reproduce un run grabado cuando la pregunta coincide. Funciona sin proveedor,
+  así que es el plan B si cae la red. Solo se reproducen runs completados, y no consumen tokens ni cuota
+  de tokens. La auditoría registra `agent.run_replayed`.
+
+### Demo en un contenedor
+
+Después del paso `migrate`, la imagen trae los documentos de la demo en `/apps/demo`:
+
+```bash
+docker run --rm \
+  -e DATABASE_URL=... \
+  -e SECRET_ENCRYPTION_KEY=... \
+  -e SOFEE_DEMO_PROVIDER_KIND=... -e SOFEE_DEMO_API_KEY=... \
+  -e SOFEE_DEMO_MAIN_MODEL=... \
+  sofee-api:<version> /apps/.venv/bin/python -m app.cli seed-demo
+```
+
+El seed es idempotente: volver a ejecutarlo no duplica nada ni pisa lo que el admin haya cambiado (la
+base de conocimiento retirada sigue retirada, y las preguntas de arranque existentes no se tocan).
+
+### Trazas
+
+Con `LANGSMITH_TRACING=true`, LangChain envía las trazas de cada llamada al modelo a LangSmith. Sofee todavía
+no guarda el enlace a la traza en `agent_runs.trace_url`, así que el admin muestra "sin enlace de trazas"
+aunque la traza exista.

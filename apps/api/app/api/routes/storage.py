@@ -1,3 +1,4 @@
+import asyncio
 from datetime import UTC, datetime
 from urllib.parse import quote
 import uuid
@@ -11,6 +12,7 @@ from ...db import get_session
 from ...models.storage import StorageObject
 from ...schemas import StorageObjectOut
 from ...services.audit import write_audit
+from ...services.extraction import try_extract_text
 from ...services.storage import StorageBackend, generate_storage_key, get_storage_backend
 from ..deps import AuthContext, check_csrf, client_ip, get_current_auth
 
@@ -49,6 +51,8 @@ async def upload_object(
     content_type = file.content_type or "application/octet-stream"
     key = generate_storage_key(filename)
     await backend.put(key, data, content_type)
+    # Texto para los adjuntos del agente. Un archivo que no se puede leer se guarda igual, sin texto.
+    extracted = await asyncio.to_thread(try_extract_text, filename, data)
 
     obj = StorageObject(
         owner_id=auth.user.id,
@@ -56,6 +60,7 @@ async def upload_object(
         filename=filename,
         content_type=content_type,
         size_bytes=len(data),
+        extracted_text=extracted,
     )
     db.add(obj)
     await db.flush()

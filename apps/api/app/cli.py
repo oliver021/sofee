@@ -5,8 +5,10 @@ import uuid
 
 from sqlalchemy import select
 
+from .agent.persistence import setup_agent_storage
 from .core.security import hash_password
 from .db import async_session_factory
+from .demo_seed import DemoSeedError, DemoSeedResult, run_seed_demo
 from .models.catalog import ModelCatalogBinding, ModelCatalogEntry
 from .models.provider import Provider, ProviderKind, ProviderModel
 from .models.user import User, UserRole
@@ -209,6 +211,26 @@ async def _seed_dev() -> None:
     print("Las API keys son ficticias: 'Probar conexión' fallará hasta rotar la credencial.")
 
 
+def _print_demo_summary(result: DemoSeedResult) -> None:
+    print("Demo lista:")
+    print(f"  documentos de la base de conocimiento: {result.kb_documents}")
+    if result.profiles_created:
+        print(f"  perfiles creados (versión 1): {', '.join(result.profiles_created)}")
+    if result.starters_set:
+        print("  preguntas de arranque: creadas (en y es, por modo)")
+    if result.tavily_configured:
+        print("  Tavily: clave configurada")
+    if result.catalog_slug:
+        print(f"  catálogo: '{result.catalog_slug}' (Sofee Pro)")
+        for model_id, verdict in result.probes.items():
+            print(f"    {model_id}: prueba de herramientas -> {verdict}")
+    for email, password in result.generated_passwords.items():
+        print(f"  {email} -> contraseña generada: {password}")
+        print("    (se muestra una sola vez; cámbiala o guárdala ahora)")
+    for note in result.notes:
+        print(f"  aviso: {note}")
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Sofee API admin CLI")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -224,6 +246,16 @@ def main() -> None:
         help="Poblar usuarios y providers de prueba para revisión e2e (solo desarrollo)",
     ).set_defaults(command="seed_dev")
 
+    sub.add_parser(
+        "setup-agent-storage",
+        help="Crear las tablas del checkpointer y del store del agente (paso migrate del release)",
+    ).set_defaults(command="setup_agent_storage")
+
+    sub.add_parser(
+        "seed-demo",
+        help="Sembrar la demo: usuarios, base de conocimiento, perfiles y preguntas (idempotente)",
+    ).set_defaults(command="seed_demo")
+
     args = parser.parse_args()
 
     if args.command == "create_admin":
@@ -232,6 +264,15 @@ def main() -> None:
         print(f"Admin created: {user.email} (id={user.id})")
     elif args.command == "seed_dev":
         asyncio.run(_seed_dev())
+    elif args.command == "setup_agent_storage":
+        asyncio.run(setup_agent_storage())
+        print("Agent storage listo (checkpointer y store).")
+    elif args.command == "seed_demo":
+        try:
+            result = asyncio.run(run_seed_demo())
+        except DemoSeedError as exc:
+            raise SystemExit(f"seed-demo: {exc}") from exc
+        _print_demo_summary(result)
 
 
 if __name__ == "__main__":

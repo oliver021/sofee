@@ -23,6 +23,28 @@ config.set_main_option("sqlalchemy.url", settings.database_url)
 
 target_metadata = Base.metadata
 
+# Tablas de LangGraph (checkpointer y store). Las crea `python -m app.cli setup-agent-storage`,
+# no Alembic: autogenerate no debe verlas ni proponer borrarlas.
+LANGGRAPH_TABLES = frozenset(
+    {
+        "checkpoints",
+        "checkpoint_blobs",
+        "checkpoint_writes",
+        "checkpoint_migrations",
+        "store",
+        "store_migrations",
+    }
+)
+
+
+def include_object(obj, name, type_, reflected, compare_to):  # noqa: ANN001, ANN201
+    if type_ == "table":
+        return name not in LANGGRAPH_TABLES
+    table = getattr(obj, "table", None)
+    if table is not None and type_ in {"index", "unique_constraint", "foreign_key_constraint"}:
+        return table.name not in LANGGRAPH_TABLES
+    return True
+
 
 def run_migrations_offline() -> None:
     url = config.get_main_option("sqlalchemy.url")
@@ -31,6 +53,7 @@ def run_migrations_offline() -> None:
         target_metadata=target_metadata,
         literal_binds=True,
         dialect_opts={"paramstyle": "named"},
+        include_object=include_object,
     )
 
     with context.begin_transaction():
@@ -45,7 +68,11 @@ def run_migrations_online() -> None:
     )
 
     def do_run_migrations(connection: Connection) -> None:
-        context.configure(connection=connection, target_metadata=target_metadata)
+        context.configure(
+            connection=connection,
+            target_metadata=target_metadata,
+            include_object=include_object,
+        )
 
         with context.begin_transaction():
             context.run_migrations()

@@ -64,6 +64,8 @@ async def test_catalog_entry_shape_hides_provider_details(client):
         "description",
         "category",
         "is_available",
+        "agent_ready",
+        "context_window",
     }
     assert "DeepInfra" not in resp.text
     assert "meta-llama/x" not in resp.text

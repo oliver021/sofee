@@ -34,6 +34,7 @@ RUN sed -i 's|^#!.*/bin/python[0-9.]*$|#!/apps/.venv/bin/python|' /apps/.venv/bi
 COPY apps/api/app ./app
 COPY apps/api/alembic ./alembic
 COPY apps/api/alembic.ini ./alembic.ini
+COPY apps/api/demo ./demo
 COPY apps/api/docker-entrypoint.sh ./docker-entrypoint.sh
 COPY apps/admin/dist ./admin_dist
 COPY apps/web/dist ./web_dist

@@ -23,15 +23,19 @@ export function onUnauthorized(handler: UnauthorizedHandler): void {
 
 export class ApiError extends Error {
   readonly status: number;
+  /** The whole JSON error body, for routes that answer with more than a `detail` string (the run
+   * endpoints send e.g. `reset_at` alongside a 429). Null when the body was not JSON. */
+  readonly body: unknown;
 
-  constructor(status: number, message: string) {
+  constructor(status: number, message: string, body: unknown = null) {
     super(message);
     this.status = status;
+    this.body = body;
   }
 }
 
 interface ApiOptions {
-  method?: 'GET' | 'POST' | 'PATCH' | 'DELETE';
+  method?: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
   body?: unknown;
   headers?: Record<string, string>;
 }
@@ -48,9 +52,10 @@ function buildHeaders(options: ApiOptions): HeadersInit {
 }
 
 async function parseError(response: Response): Promise<ApiError> {
-  const detail = await response.json().catch(() => null);
-  const message = typeof detail?.detail === 'string' ? detail.detail : `HTTP ${response.status}`;
-  return new ApiError(response.status, message);
+  const body: unknown = await response.json().catch(() => null);
+  const detail = (body as { detail?: unknown } | null)?.detail;
+  const message = typeof detail === 'string' ? detail : `HTTP ${response.status}`;
+  return new ApiError(response.status, message, body);
 }
 
 export async function api<T>(path: string, options: ApiOptions = {}): Promise<T> {
@@ -76,10 +81,9 @@ export async function api<T>(path: string, options: ApiOptions = {}): Promise<T>
     throw await parseError(response);
   }
 
-  if (response.status === 204) {
-    return undefined as T;
-  }
-  return (await response.json()) as T;
+  // 204 and the run endpoints' bare 202 carry no body, so an empty body is not an error.
+  const text = await response.text();
+  return (text.length > 0 ? JSON.parse(text) : undefined) as T;
 }
 
 interface StorageObject {

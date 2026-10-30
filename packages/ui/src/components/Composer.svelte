@@ -18,6 +18,9 @@
     invertSendKey?: boolean;
     pinnedSourceCount?: number;
     webAccessOn?: boolean;
+    /** Set while the run waits for the user (a plan review): the composer says so and offers no
+     * Stop or Send, because the run cannot take a new message until it is answered (roadmap U8). */
+    waitingLabel?: string | null;
     t: Translate;
     onSend: () => void;
     onStop: () => void;
@@ -36,6 +39,7 @@
     invertSendKey = false,
     pinnedSourceCount = 0,
     webAccessOn = false,
+    waitingLabel = null,
     t,
     onSend,
     onStop,
@@ -49,7 +53,8 @@
   const LONG_PASTE_THRESHOLD = 2000;
 
   let textareaEl: HTMLTextAreaElement | null = $state(null);
-  let canSend = $derived(value.trim().length > 0 || hasAttachment);
+  let waiting = $derived(waitingLabel !== null);
+  let canSend = $derived((value.trim().length > 0 || hasAttachment) && !waiting);
   let modeLabel = $derived(t(`composer.mode.${mode}`));
 
   function cycleMode(): void {
@@ -71,7 +76,7 @@
   });
 
   function trySend(): void {
-    if (!canSend || isStreaming) return;
+    if (!canSend || isStreaming || waiting) return;
     onSend();
     queueMicrotask(() => textareaEl?.focus());
   }
@@ -105,12 +110,15 @@
 </script>
 
 <div class="composer">
-  {#if pinnedSourceCount > 0 || onToggleWebAccess}
+  {#if pinnedSourceCount > 0 || onToggleWebAccess || waiting}
     <div class="satellites">
       <span class="chip" title={t('satellite.depth.label')}>
         <span class="chip-dot" aria-hidden="true"></span>
         {modeLabel}
       </span>
+      {#if waitingLabel}
+        <span class="chip chip-waiting" role="status">{waitingLabel}</span>
+      {/if}
       {#if pinnedSourceCount > 0}
         <span class="chip">{t('satellite.sources.count', { count: pinnedSourceCount })}</span>
       {/if}
@@ -176,16 +184,22 @@
         <button
           type="button"
           class="send-btn"
-          disabled={!isStreaming && !canSend}
-          aria-label={isStreaming ? t('composer.stop') : t('composer.send')}
-          title={isStreaming
-            ? t('composer.stop')
-            : canSend
-              ? t('composer.send')
-              : t('composer.empty')}
+          disabled={waiting || (!isStreaming && !canSend)}
+          aria-label={waiting && waitingLabel
+            ? waitingLabel
+            : isStreaming
+              ? t('composer.stop')
+              : t('composer.send')}
+          title={waiting && waitingLabel
+            ? waitingLabel
+            : isStreaming
+              ? t('composer.stop')
+              : canSend
+                ? t('composer.send')
+                : t('composer.empty')}
           onclick={isStreaming ? onStop : trySend}
         >
-          {#if isStreaming}
+          {#if isStreaming && !waiting}
             <IconStop size={18} />
           {:else}
             <IconSend size={18} />
@@ -246,6 +260,11 @@
 
   .chip-toggle {
     cursor: pointer;
+  }
+
+  .chip-waiting {
+    border-color: var(--p-line-2);
+    color: var(--p-ink);
   }
 
   .chip-toggle.on {

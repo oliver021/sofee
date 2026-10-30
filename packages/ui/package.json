@@ -2,7 +2,7 @@
   "name": "@sofee/ui",
   "private": true,
   "version": "0.0.0",
-  "description": "Sofee's Svelte components: rails, panels, menus, the Orbit composer, the message list. Presentational only \u2014 no domain state (see repo layout in README).",
+  "description": "Sofee's Svelte components: rails, panels, menus, the Orbit composer, the message list. Presentational only — no domain state (see repo layout in README).",
   "type": "module",
   "license": "UNLICENSED",
   "main": "./src/index.ts",
@@ -12,7 +12,9 @@
     "./styles/scrollbars.css": "./src/styles/scrollbars.css"
   },
   "scripts": {
-    "typecheck": "svelte-check --tsconfig ./tsconfig.json --fail-on-warnings"
+    "typecheck": "svelte-check --tsconfig ./tsconfig.json --fail-on-warnings",
+    "test": "vitest run",
+    "test:watch": "vitest"
   },
   "peerDependencies": {
     "svelte": "^5.0.0"
@@ -20,6 +22,7 @@
   "dependencies": {
     "@sofee/icons": "*",
     "@sofee/tokens": "*",
+    "marked": "^18.1.2",
     "overlayscrollbars": "^2.16.0"
   },
   "devDependencies": {
@@ -27,6 +30,7 @@
     "@sveltejs/vite-plugin-svelte": "^7.3.0",
     "svelte": "^5.57.0",
     "svelte-check": "^4.7.6",
-    "typescript": "^6.0.3"
+    "typescript": "^6.0.3",
+    "vitest": "^5.0.5"
   }
 }

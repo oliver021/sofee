@@ -20,6 +20,8 @@ class StorageObject(Base):
     filename: Mapped[str] = mapped_column(Text)
     content_type: Mapped[str] = mapped_column(Text)
     size_bytes: Mapped[int] = mapped_column(BigInteger)
+    # Texto extraído al subir (md, txt, pdf). Lo usan los adjuntos del hilo (/attachments/).
+    extracted_text: Mapped[str | None] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )

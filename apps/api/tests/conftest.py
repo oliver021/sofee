@@ -24,6 +24,7 @@ from sqlalchemy import text  # noqa: E402
 from app.config import settings  # noqa: E402
 from app.core.csrf import derive_csrf_token  # noqa: E402
 from app.core.security import hash_password  # noqa: E402
+from app.agent.persistence import reset_in_memory_storage  # noqa: E402
 from app.db import async_session_factory  # noqa: E402
 from app.models.user import User, UserRole  # noqa: E402
 
@@ -52,6 +53,7 @@ def _clear_storage_dir() -> None:
 @pytest_asyncio.fixture(autouse=True)
 async def clean_db(apply_migrations):
     _clear_storage_dir()
+    reset_in_memory_storage()
     yield
     _clear_storage_dir()
     async with async_session_factory() as db:
@@ -59,7 +61,9 @@ async def clean_db(apply_migrations):
             text(
                 "TRUNCATE users, sessions, providers, provider_credentials, "
                 "provider_models, model_catalog_entries, model_catalog_bindings, "
-                "audit_log, storage_objects, login_attempts "
+                "audit_log, storage_objects, login_attempts, agent_profiles, "
+                "agent_runs, agent_run_events, message_feedback, app_settings, "
+                "kb_documents, integration_credentials "
                 "RESTART IDENTITY CASCADE"
             )
         )

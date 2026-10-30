@@ -1,13 +1,16 @@
 import enum
 import uuid
 from datetime import datetime
+from decimal import Decimal
 
 from sqlalchemy import (
     Boolean,
     DateTime,
     Enum,
     ForeignKey,
+    Integer,
     LargeBinary,
+    Numeric,
     Text,
     UniqueConstraint,
     Uuid,
@@ -97,6 +100,12 @@ class ProviderModel(Base):
     model_id: Mapped[str] = mapped_column(Text)
     display_name: Mapped[str] = mapped_column(Text)
     is_enabled: Mapped[bool] = mapped_column(Boolean, server_default=text("true"))
+    # Aptitud para agentes (M-agente). `supports_tools` lo verifica una prueba real,
+    # no se declara a mano; null = aún no probado.
+    supports_tools: Mapped[bool | None] = mapped_column(Boolean)
+    context_window: Mapped[int | None] = mapped_column(Integer)
+    input_price_per_mtok: Mapped[Decimal | None] = mapped_column(Numeric(12, 4))
+    output_price_per_mtok: Mapped[Decimal | None] = mapped_column(Numeric(12, 4))
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )

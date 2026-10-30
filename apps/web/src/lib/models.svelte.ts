@@ -1,10 +1,11 @@
 /**
  * The model selector's data: `GET /catalog` (the curated, admin-built catalog — never the raw
- * provider/model inventory) plus the user's choice, persisted in localStorage. The selected
- * model is what a future streaming integration would send to the backend; for now it is the UI
- * contract M8 asks for.
+ * provider/model inventory) plus the user's choice, persisted in localStorage. The choice travels
+ * with each run as `model_slug`. With the agent, only entries marked `agent_ready` are offered
+ * (they support the tool calling a deep agent needs); the mock assistant keeps its old list.
  */
 import { api } from './api.js';
+import { isMockAssistant } from './assistant-mode.js';
 
 export interface ModelOption {
   /** The catalog entry's stable slug — never a provider or model id. */
@@ -19,6 +20,8 @@ interface PublicCatalogEntry {
   description: string | null;
   category: string;
   is_available: boolean;
+  agent_ready: boolean;
+  context_window: number | null;
 }
 
 const STORAGE_KEY = 'sofee:selected-model';
@@ -55,7 +58,7 @@ class ModelState {
     try {
       const rows = await api<PublicCatalogEntry[]>('/catalog');
       this.options = rows
-        .filter((row) => row.is_available)
+        .filter((row) => (isMockAssistant ? row.is_available : row.agent_ready))
         .map((row) => ({
           id: row.slug,
           label: row.display_name,

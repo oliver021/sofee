@@ -17,11 +17,41 @@
     'provider.credential_rotated',
     'provider.model_toggled',
     'provider.models_synced',
+    'provider.model_capabilities_updated',
+    'catalog.entry_created',
+    'catalog.entry_updated',
+    'catalog.entry_deleted',
+    'catalog.binding_added',
+    'catalog.binding_updated',
+    'catalog.binding_removed',
+    'catalog.agent_tested',
+    'agent.profile_version_created',
+    'agent.profile_version_activated',
+    'agent.settings_updated',
+    'agent.run_cancelled',
+    'agent.feedback_reviewed',
+    'kb.document_uploaded',
+    'kb.document_updated',
+    'kb.document_deleted',
+    'integration.tavily_key_set',
+    'integration.tavily_tested',
     'storage.object_uploaded',
     'storage.object_deleted',
   ];
 
-  const RESOURCE_TYPES = ['provider', 'user', 'session', 'storage'];
+  const RESOURCE_TYPES = [
+    'provider',
+    'user',
+    'session',
+    'storage_object',
+    'catalog_entry',
+    'agent_profile',
+    'agent_settings',
+    'agent_run',
+    'message_feedback',
+    'kb_document',
+    'integration',
+  ];
 
   let entries = $state<AuditEntry[]>([]);
   let loading = $state(true);
