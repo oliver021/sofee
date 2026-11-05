@@ -5,7 +5,7 @@ from .base import Base
 from .catalog import ModelCatalogBinding, ModelCatalogEntry
 from .feedback import MessageFeedback
 from .integration import IntegrationCredential
-from .kb import KbDocument
+from .kb import KbChunk, KbDocument
 from .login_attempt import LoginAttempt
 from .provider import (
     Provider,
@@ -24,6 +24,7 @@ __all__ = [
     "AgentRunEvent",
     "AppSetting",
     "IntegrationCredential",
+    "KbChunk",
     "KbDocument",
     "AuditLog",
     "Base",

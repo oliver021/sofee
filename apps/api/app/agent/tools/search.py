@@ -1,4 +1,4 @@
-"""Herramientas de búsqueda: documentos del equipo (Postgres FTS) y la web (Tavily).
+"""Herramientas de búsqueda: documentos del equipo (RAG con respaldo en Postgres FTS) y la web (Tavily).
 
 Cada resultado se registra en las fuentes del run y vuelve ya numerado `[n]`, así que el modelo
 solo puede citar números que existen. Todas cuentan contra `max_searches` del perfil.
@@ -12,6 +12,7 @@ from langchain_core.tools import BaseTool, tool
 from ...db import async_session_factory
 from ...services.integrations import TAVILY, active_secret
 from ...services.knowledge import search_documents
+from ...services.rag import retrieve
 from ...services.tavily import TavilyError, tavily_search
 from ..context import SofeeContext
 from ..sources import get_registry
@@ -43,21 +44,33 @@ def build_search_tools(*, max_searches: int, web_search: bool) -> list[BaseTool]
 
     @tool
     async def search_team_docs(query: str, runtime: ToolCtx, limit: int = 5) -> str:
-        """Busca en la documentación del equipo. Devuelve los documentos que coinciden, numerados
-        como [n] Título — fragmento. Para leer uno completo, usa read_file con su ruta en /kb/."""
+        """Busca en la documentación del equipo. Devuelve pasajes numerados como
+        [n] Título › Sección — pasaje. Responde solo con lo que digan esos pasajes y cítalos con su
+        número; si no cubren la pregunta, dilo. Para leer un documento completo, usa read_file con
+        su ruta en /kb/."""
         refused = claim(runtime)
         if refused is not None:
             return refused
         runtime.stream_writer({"type": "status", "text": "Buscando en la documentación del equipo"})
+        wanted = _clamp(limit, 5)
         async with async_session_factory() as db:
-            hits = await search_documents(db, query[:_QUERY_CAP], limit=_clamp(limit, 5))
-        if not hits:
-            return "No hay documentos del equipo que coincidan con la búsqueda."
+            passages = await retrieve(db, query[:_QUERY_CAP], limit=wanted)
+            hits = [] if passages is not None else await search_documents(db, query[:_QUERY_CAP], limit=wanted)
         registry = get_registry(runtime.context.run_id)
         lines = []
-        for hit in hits:
-            index = registry.add(kind="kb", title=hit.title, ref=hit.document_id, snippet=hit.snippet)
-            lines.append(f"[{index}] {hit.title} — {hit.snippet}")
+        if passages is not None:
+            for passage in passages:
+                label = f"{passage.title} › {passage.heading}" if passage.heading else passage.title
+                index = registry.add(
+                    kind="kb", title=passage.title, ref=passage.document_id, snippet=_clip(passage.text)
+                )
+                lines.append(f"[{index}] {label} — {passage.text}")
+        else:
+            for hit in hits:
+                index = registry.add(kind="kb", title=hit.title, ref=hit.document_id, snippet=hit.snippet)
+                lines.append(f"[{index}] {hit.title} — {hit.snippet}")
+        if not lines:
+            return "No hay documentos del equipo que coincidan con la búsqueda."
         return "\n".join(lines)
 
     tools: list[BaseTool] = [search_team_docs]

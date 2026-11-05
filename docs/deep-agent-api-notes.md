@@ -323,3 +323,20 @@ Verified on 2026-10-29 with scripted fake models (no network). Code: `apps/api/a
   not stopped by the switch.
 - Starters, quotas and the kill switch are read from `app_settings` by `apps/api/app/services/app_settings.py`.
   The admin side writes them (step C2).
+
+
+## RAG: `GroundingMiddleware` (app/agent/grounding.py)
+
+Comprobado en `langchain` 1.4.7 (`.venv`, `langchain/agents/middleware/types.py`):
+
+- `AgentMiddleware.awrap_model_call(request, handler)` recibe un `ModelRequest` con `messages`
+  (sin el system message), `system_message: SystemMessage | None`, `runtime` (de ahí sale
+  `runtime.context`, el `SofeeContext`) y `override(**cambios)`.
+- Para ampliar el prompt de una llamada sin tocar el historial:
+  `request.override(system_message=SystemMessage(content=...))`. No se guarda en el checkpointer.
+- `SourceRegistry.add` emite `source.added` con `get_stream_writer()`, que solo funciona dentro del
+  grafo: por eso la recuperación va en el middleware y no antes de `agent.astream`.
+- Una llamada al modelo hecha desde un middleware (`request.model.ainvoke`) dentro del grafo se
+  emite por `stream_mode="messages"` como si fuera la respuesta. Para una llamada interna, usa
+  `request.model.with_config(tags=[TAG_NOSTREAM])` (`langgraph.constants.TAG_NOSTREAM == "nostream"`,
+  comprobado en `langgraph/constants.py`). Los tokens siguen contando en el uso del run.

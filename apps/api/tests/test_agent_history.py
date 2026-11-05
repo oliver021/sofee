@@ -164,3 +164,17 @@ async def test_compaction_without_new_turns_has_nothing_to_summarise():
         compaction = await load_compaction_input(db, thread)
     assert compaction.turns == () or list(compaction.turns) == []
     assert compaction.through_seq is None
+
+
+async def test_citation_markers_of_earlier_answers_are_not_replayed_to_the_model():
+    """Las citas se numeran por run: un `[1]` viejo no existe en el run nuevo y el modelo lo copia."""
+    async with async_session_factory() as db:
+        thread, messages = await _thread_with(
+            db, [("u1", "user", "complete"), ("a1", "assistant", "complete"), ("u2", "user", "complete")]
+        )
+        messages["a1"].text = "Son tres niveles [1]. Con `arr[2]` y [2]."
+        await db.commit()
+
+    history = await _model_input("u2")
+
+    assert history[1] == "ai:Son tres niveles. Con `arr[2]` y."

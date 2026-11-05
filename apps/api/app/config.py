@@ -24,6 +24,24 @@ class Settings(BaseSettings):
 
     secret_encryption_key: str | None = None
 
+    # RAG sobre la base de conocimiento. Sin `embeddings_base_url` y `embeddings_model` el
+    # agente sigue buscando solo con full-text. `embeddings_base_url` es la raíz de una API
+    # compatible con OpenAI (se le añade `/embeddings`), p. ej. `http://127.0.0.1:8082/v1`.
+    embeddings_base_url: str | None = None
+    embeddings_model: str | None = None
+    embeddings_api_key: str | None = None
+    # Texto que se antepone a la consulta (no a los documentos). Los modelos de recuperación como
+    # Qwen3-Embedding lo piden: `Instruct: <tarea>\nQuery: `.
+    embeddings_query_prefix: str = ""
+    embeddings_timeout_seconds: float = 30.0
+    # Parecido coseno mínimo del mejor trozo para considerar que la base de conocimiento responde
+    # a la pregunta. Depende del modelo de embeddings: 0.48 está calibrado para Qwen3-Embedding-0.6B.
+    rag_min_similarity: float = 0.48
+    # Un trozo se devuelve si está a menos de este margen del mejor.
+    rag_similarity_margin: float = 0.12
+    rag_chunk_chars: int = 900
+    rag_chunk_overlap_chars: int = 150
+
     storage_backend: str = "local"
     storage_local_dir: str = "./storage"
     storage_max_upload_bytes: int = 25 * 1024 * 1024

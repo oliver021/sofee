@@ -48,6 +48,7 @@ from .services.extraction import CONTENT_TYPES, extract_text
 from .services.integrations import TAVILY, is_configured, store_credential
 from .services.knowledge import kb_path, slugify, title_for, unique_slug
 from .services.providers import create_credential, get_active_credential
+from .services.rag import embeddings_enabled, index_document_safely
 
 DEMO_KB_DIR = Path(__file__).resolve().parents[1] / "demo" / "kb"
 ADMIN_EMAIL = "admin@sofee.demo"
@@ -110,6 +111,7 @@ class DemoSeedResult:
     # Solo las contraseñas generadas en esta pasada (email -> contraseña). Vacío si vinieron del entorno.
     generated_passwords: dict[str, str] = field(default_factory=dict)
     kb_documents: int = 0
+    kb_chunks: int = 0
     profiles_created: list[str] = field(default_factory=list)
     starters_set: bool = False
     tavily_configured: bool = False
@@ -180,6 +182,15 @@ async def seed_demo(
                 await mirror_document(store, document)
             else:
                 await unmirror_document(store, document.slug)
+        if embeddings_enabled():
+            # Después del commit y fuera de él: un fallo del servicio de embeddings no tumba la demo.
+            for document in documents_rows:
+                result.kb_chunks += await index_document_safely(db, document)
+            await db.commit()
+        else:
+            result.notes.append(
+                "Sin EMBEDDINGS_BASE_URL y EMBEDDINGS_MODEL: el agente busca solo con full-text (sin RAG)."
+            )
     return result
 
 

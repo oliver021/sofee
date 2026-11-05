@@ -1,7 +1,19 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import BigInteger, Boolean, Computed, DateTime, ForeignKey, Index, Text, Uuid, func
+from sqlalchemy import (
+    BigInteger,
+    Boolean,
+    Computed,
+    DateTime,
+    Float,
+    ForeignKey,
+    Index,
+    Integer,
+    Text,
+    Uuid,
+    func,
+)
 from sqlalchemy import text as sa_text
 from sqlalchemy.dialects.postgresql import ARRAY, TSVECTOR
 from sqlalchemy.orm import Mapped, mapped_column
@@ -48,4 +60,31 @@ class KbDocument(Base):
     )
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+
+class KbChunk(Base):
+    """Trozo de un documento con su embedding. Es lo que recupera el RAG.
+
+    Se borra con su documento. `embedding` es un `float[]` normalizado (norma 1), así que el
+    producto punto es el coseno. `model` guarda con qué modelo se calculó: un trozo de otro
+    modelo no se compara con la consulta (los espacios vectoriales no son compatibles).
+    """
+
+    __tablename__ = "kb_chunks"
+    __table_args__ = (Index("ix_kb_chunks_document_id", "document_id"),)
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        Uuid, primary_key=True, default=uuid.uuid4, server_default=sa_text("gen_random_uuid()")
+    )
+    document_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid, ForeignKey("kb_documents.id", ondelete="CASCADE")
+    )
+    position: Mapped[int] = mapped_column(Integer)
+    heading: Mapped[str] = mapped_column(Text, server_default=sa_text("''"))
+    text: Mapped[str] = mapped_column(Text)
+    embedding: Mapped[list[float]] = mapped_column(ARRAY(Float))
+    model: Mapped[str] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
     )

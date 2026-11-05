@@ -16,6 +16,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..models.thread import Message, Thread
+from .sources import strip_citation_markers
 
 _ROLES = ("user", "assistant")
 _STATUSES = ("complete", "stopped")
@@ -107,7 +108,8 @@ async def load_model_input(
         if turn.role == "user":
             messages.append(HumanMessage(content=turn.text))
         else:
-            messages.append(AIMessage(content=turn.text))
+            # Los `[n]` de turnos anteriores no existen en este run (la numeración reinicia).
+            messages.append(AIMessage(content=strip_citation_markers(turn.text)))
     messages.append(HumanMessage(content=user_message.text))
     if continue_text:
         messages.append(AIMessage(content=continue_text))

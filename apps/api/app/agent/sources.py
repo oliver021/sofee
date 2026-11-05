@@ -57,6 +57,8 @@ class SourceRegistry:
         self.documents: dict[str, DocumentRef] = {}
         # Presupuesto del run: intentos de búsqueda y de subagentes. Cuentan también tras reanudar.
         self.searches = 0
+        # Pasajes recuperados antes de responder (ver grounding.py); `None` = aún no se intentó.
+        self.grounding: str | None = None
         self.subagents = 0
 
     @property
@@ -225,10 +227,21 @@ class SourcesMiddleware(AgentMiddleware):
         return result.model_copy(update={"content": f"Fuente [{index}]: {title}\n{result.content}"})
 
 
+def strip_citation_markers(text: str) -> str:
+    """Quita los `[n]` de un texto, salvo dentro de bloques de código.
+
+    Las citas se numeran por run: un `[1]` de una respuesta antigua no apunta a nada en el run
+    actual, y el modelo lo copia. Solo se usa para armar el historial, no para lo guardado.
+    """
+    cleaned = _CITATION_RE.sub(lambda match: match.group(1) or "", text)
+    return re.sub(r"[ \t]+([.,;:!?])", r"\1", cleaned)
+
+
 __all__ = [
     "DocumentRef",
     "Source",
     "SourceRegistry",
+    "strip_citation_markers",
     "SourcesMiddleware",
     "finalize",
     "get_registry",

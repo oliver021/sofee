@@ -12,7 +12,9 @@ from .demo_seed import DemoSeedError, DemoSeedResult, run_seed_demo
 from .models.catalog import ModelCatalogBinding, ModelCatalogEntry
 from .models.provider import Provider, ProviderKind, ProviderModel
 from .models.user import User, UserRole
+from .services.embeddings import EmbeddingsError, embeddings_enabled
 from .services.providers import create_credential, get_active_credential
+from .services.rag import reindex_all
 
 
 async def _create_admin(email: str, password: str, display_name: str) -> User:
@@ -214,6 +216,8 @@ async def _seed_dev() -> None:
 def _print_demo_summary(result: DemoSeedResult) -> None:
     print("Demo lista:")
     print(f"  documentos de la base de conocimiento: {result.kb_documents}")
+    if result.kb_chunks:
+        print(f"  trozos indexados para RAG: {result.kb_chunks}")
     if result.profiles_created:
         print(f"  perfiles creados (versión 1): {', '.join(result.profiles_created)}")
     if result.starters_set:
@@ -229,6 +233,15 @@ def _print_demo_summary(result: DemoSeedResult) -> None:
         print("    (se muestra una sola vez; cámbiala o guárdala ahora)")
     for note in result.notes:
         print(f"  aviso: {note}")
+
+
+async def _reindex_kb() -> tuple[int, int]:
+    if not embeddings_enabled():
+        raise EmbeddingsError("Configura EMBEDDINGS_BASE_URL y EMBEDDINGS_MODEL")
+    async with async_session_factory() as db:
+        counts = await reindex_all(db)
+        await db.commit()
+    return counts
 
 
 def main() -> None:
@@ -256,6 +269,11 @@ def main() -> None:
         help="Sembrar la demo: usuarios, base de conocimiento, perfiles y preguntas (idempotente)",
     ).set_defaults(command="seed_demo")
 
+    sub.add_parser(
+        "reindex-kb",
+        help="Recalcular los embeddings de la base de conocimiento (RAG); tras cambiar de modelo",
+    ).set_defaults(command="reindex_kb")
+
     args = parser.parse_args()
 
     if args.command == "create_admin":
@@ -267,6 +285,12 @@ def main() -> None:
     elif args.command == "setup_agent_storage":
         asyncio.run(setup_agent_storage())
         print("Agent storage listo (checkpointer y store).")
+    elif args.command == "reindex_kb":
+        try:
+            documents, chunks = asyncio.run(_reindex_kb())
+        except EmbeddingsError as exc:
+            raise SystemExit(f"reindex-kb: {exc}") from exc
+        print(f"Reindexado: {documents} documentos, {chunks} trozos.")
     elif args.command == "seed_demo":
         try:
             result = asyncio.run(run_seed_demo())

@@ -27,6 +27,7 @@ from ...services.extraction import (
     extract_text,
 )
 from ...services.knowledge import MAX_TAGS, kb_path, normalize_tags, slugify, title_for, unique_slug
+from ...services.rag import index_document_safely
 from ..deps import AuthContext, check_csrf, client_ip, get_current_auth, require_admin
 
 router = APIRouter(prefix="/admin/kb", tags=["kb-admin"], dependencies=[Depends(require_admin)])
@@ -132,6 +133,8 @@ async def upload_documents(
     for document in created:
         await db.refresh(document)
         await mirror_document(store, document)
+        await index_document_safely(db, document)
+    await db.commit()
     return KbUploadOut(
         documents=[_serialize(document, len(document.text)) for document in created],
         rejected=rejected,

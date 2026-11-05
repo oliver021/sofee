@@ -30,6 +30,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ..models.agent import AgentProfile as AgentProfileVersion
 from .backends import READ_ONLY_PERMISSIONS
 from .context import SofeeContext
+from .grounding import GroundingMiddleware
 from .limits import SubagentLimitMiddleware
 from .models import ResolvedModel
 from .sources import SourcesMiddleware
@@ -78,7 +79,7 @@ EXPLORE_PROMPT = """You help the person explore a topic. You open directions; yo
 
 1. Answer in a short paragraph (at most 120 words) with the context that matters.
 2. Then ALWAYS call suggest_directions with three to five directions. Each direction has a short title, written as the next question the person might ask, and a 'why' sentence that says what it would reveal.
-3. Search search_team_docs first. Use web_search only when the team's documentation does not cover the topic, and keep it light: at most three searches.
+3. Search search_team_docs first. Use web_search when the team's documentation does not cover the topic, and always for general facts, technologies, people or events: do not answer those from memory. Keep it light: at most three searches.
 
 Sources: cite with numbers in square brackets, like [1], and only the numbers the tools gave you. Never invent a source.
 
@@ -289,6 +290,19 @@ def build_agent(
     if planning:
         main_middleware.append(TodoListMiddleware())
     main_middleware.append(SourcesMiddleware())
+    # RAG: solo si el perfil puede buscar en la documentación (sin embeddings configurados no hace nada).
+    if "search_team_docs" in config.get("tools", []):
+        # La búsqueda web previa solo si el agente puede buscar en la web (hay clave de Tavily) y
+        # responde él solo: con subagentes (research) el plan decide qué buscar.
+        has_web = "web_search" in config.get("tools", []) and any(
+            getattr(tool, "name", None) == "web_search" for tool in tools
+        )
+        main_middleware.append(
+            GroundingMiddleware(
+                web_fallback=has_web and not config.get("subagents"),
+                max_searches=int((config.get("limits") or {}).get("max_searches", 3)),
+            )
+        )
     max_subagents = (config.get("limits") or {}).get("max_subagents")
     if config.get("subagents") and max_subagents is not None:
         main_middleware.append(SubagentLimitMiddleware(int(max_subagents)))
