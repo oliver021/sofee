@@ -48,3 +48,6 @@ defaultPROVIDER.txt
 
 # notas de planificación locales (no se versionan)
 docs/deep-agent-roadmap.md
+
+# quick preview state (secrets, logs, storage)
+.preview/
