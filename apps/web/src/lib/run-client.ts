@@ -159,8 +159,9 @@ export interface RunFailureInfo {
 
 /**
  * Turns a failed create or context call into the code the thread shows. The backend answers
- * 429 `quota_exceeded` with `reset_at`, 503 `agent_disabled` when the switch is off, and anything
- * else is reported as an internal failure.
+ * 429 `quota_exceeded` with `reset_at`, 503 `agent_disabled` when the switch is off, 409
+ * `run_active` while a reply is still running; a request that never reached the server is
+ * `network`, and anything else is reported as an internal failure.
  */
 export function failureInfoOf(error: unknown): RunFailureInfo {
   if (error instanceof ApiError) {
@@ -177,6 +178,13 @@ export function failureInfoOf(error: unknown): RunFailureInfo {
     if (error.status === 503 && error.message === 'model_unavailable') {
       return { code: 'model_unavailable' };
     }
+    if (error.status === 409 && error.message === 'run_active') {
+      return { code: 'busy' };
+    }
+    // A gateway in front of the API answers 502/504 when the API itself is down or too slow.
+    if (error.status === 502 || error.status === 504) return { code: 'network' };
   }
+  // `fetch` rejects with a TypeError when the request never got an answer (offline, server down).
+  if (error instanceof TypeError) return { code: 'network' };
   return { code: 'internal' };
 }

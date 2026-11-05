@@ -700,3 +700,24 @@ describe('context cut points, starters, agent files and sources', () => {
     expect(appState.panelTriggerEl).toBe(trigger);
   });
 });
+
+describe('attachment uploads', () => {
+  const file = new File(['x'], 'big.pdf');
+
+  it('says an over-limit file is too large and never sends it', async () => {
+    appState.setUploader(() => Promise.reject(new ApiError(413, 'File too large')));
+    appState.addAttachment('big.pdf', 'file', undefined, file);
+    await settle();
+    expect(appState.attachments.at(-1)).toMatchObject({ error: true, errorReason: 'tooLarge' });
+    expect(appState.pendingAttachmentStorageIds).toEqual([]);
+  });
+
+  it('gives no reason for other upload failures', async () => {
+    appState.setUploader(() => Promise.reject(new ApiError(500, 'HTTP 500')));
+    appState.addAttachment('a.pdf', 'file', undefined, file);
+    await settle();
+    const last = appState.attachments.at(-1);
+    expect(last).toMatchObject({ error: true });
+    expect(last?.errorReason).toBeUndefined();
+  });
+});

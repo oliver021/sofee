@@ -179,6 +179,8 @@ async def test_explore_searches_the_web_before_answering_when_the_team_docs_have
     assert "capital city" not in streamed and streamed.strip() == "Listo [1]."
     added = [payload for kind, payload in events if kind == "source.added"]
     assert [(p["kind"], p["index"]) for p in added] == [("web", 1)]
+    # El estado lleva una clave estable: la web lo traduce al idioma de la interfaz.
+    assert [p["key"] for kind, p in events if kind == "status"] == ["searching_web"]
 
 
 async def test_no_web_search_when_the_team_docs_answer_or_there_is_no_tavily_key(

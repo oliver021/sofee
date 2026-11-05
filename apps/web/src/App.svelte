@@ -245,6 +245,19 @@
     appState.setDraft(appState.activeThreadId, composerValue);
   });
 
+  /** The server sends a stable `statusKey` so the status reads in the interface language; its own
+   * `statusText` (Spanish) is only the fallback for statuses without a key. */
+  function statusLabel(run: { statusKey: string; statusText: string } | undefined): string {
+    switch (run?.statusKey) {
+      case 'searching_docs':
+        return t('thread.status.searchingDocs');
+      case 'searching_web':
+        return t('thread.status.searchingWeb');
+      default:
+        return run?.statusText ?? '';
+    }
+  }
+
   function mcpStatusLabel(connected: boolean): string {
     return connected ? t('panel.mcp.connected') : t('panel.mcp.disconnected');
   }
@@ -961,7 +974,7 @@
               errorResetLabel={message.errorResetAt
                 ? formatClockTime(message.errorResetAt)
                 : undefined}
-              statusText={run?.statusText ?? ''}
+              statusText={statusLabel(run)}
               feedback={appState.feedback[message.id]}
               copied={copiedMessageId === message.id}
               t={tWide}
@@ -1186,7 +1199,11 @@
           {#if attachment.uploading}
             <span class="panel-row-tag">{t('panel.attachments.uploading')}</span>
           {:else if attachment.error}
-            <span class="panel-row-tag">{t('panel.attachments.error')}</span>
+            <span class="panel-row-tag"
+              >{attachment.errorReason === 'tooLarge'
+                ? t('panel.attachments.errorTooLarge')
+                : t('panel.attachments.error')}</span
+            >
           {:else if attachment.sizeLabel}
             <span class="panel-row-tag">{attachment.sizeLabel}</span>
           {/if}
@@ -1332,6 +1349,17 @@
   @media (max-width: 640px) {
     .canvas {
       padding-inline: var(--space-2);
+    }
+
+    /* The context toolbar floats over the right edge: once a conversation shows it, keep the
+       text clear of it instead of letting the toolbar cover the end of every line. */
+    .canvas:has(.context-dock) {
+      padding-inline-end: var(--toolbar-gutter);
+    }
+
+    /* The composer sits below the toolbar, so it keeps the full width. */
+    .canvas:has(.context-dock) .composer-dock {
+      margin-inline-end: calc(var(--space-2) - var(--toolbar-gutter));
     }
   }
 

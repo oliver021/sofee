@@ -49,6 +49,10 @@
         return { title: t('thread.errors.timeout.title'), body: t('thread.errors.timeout.body') };
       case 'internal':
         return { title: t('thread.errors.internal.title'), body: t('thread.errors.internal.body') };
+      case 'network':
+        return { title: t('thread.errors.network.title'), body: t('thread.errors.network.body') };
+      case 'busy':
+        return { title: t('thread.errors.busy.title'), body: t('thread.errors.busy.body') };
       case undefined:
         return { title: t('thread.errorTitle'), body: t('thread.errorBody') };
     }

@@ -188,7 +188,7 @@ async def test_search_team_docs_returns_numbered_results_and_registers_them(clie
     assert [p["ref"] for kind, p in events if kind == "source.added"] == [doc_id]
     assert events[-1][1]["citations"][0]["snippet"].count("pipeline") == 1
     # La herramienta avisa de lo que hace por el stream custom: llega como evento `status`.
-    assert {"text": "Buscando en la documentación del equipo"} in [p for kind, p in events if kind == "status"]
+    assert {"text": "Buscando en la documentación del equipo", "key": "searching_docs"} in [p for kind, p in events if kind == "status"]
 
 
 async def test_disabled_documents_disappear_from_the_agent(client, use_model):
@@ -361,7 +361,7 @@ async def test_web_search_with_a_tavily_key_is_numbered_and_cited_as_web(client,
     search = _finished(events, "web_search")[0]
     assert search["status"] == "success"
     assert search["result_preview"].startswith("[1] FastAPI — fastapi.tiangolo.com")
-    assert {"text": "Buscando en la web"} in [p for kind, p in events if kind == "status"]
+    assert {"text": "Buscando en la web", "key": "searching_web"} in [p for kind, p in events if kind == "status"]
     assert events[-1][1]["citations"] == [
         {
             "index": 1,

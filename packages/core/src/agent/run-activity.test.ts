@@ -15,6 +15,7 @@ describe('createRunActivity', () => {
       runId: 'run-1',
       status: 'queued',
       statusText: '',
+      statusKey: '',
       todos: [],
       tools: [],
       subagents: [],
@@ -134,6 +135,14 @@ describe('applyRunEvent — progress', () => {
   it('status sets the status text', () => {
     const next = fold([{ type: 'status', payload: { text: 'Leyendo deploy.md…' } }]);
     expect(next.statusText).toBe('Leyendo deploy.md…');
+    expect(next.statusKey).toBe('');
+  });
+
+  it('status keeps the key the server sent so the interface can translate it', () => {
+    const next = fold([
+      { type: 'status', payload: { text: 'Buscando en la web', key: 'searching_web' } },
+    ]);
+    expect(next.statusKey).toBe('searching_web');
   });
 
   it('todos.updated replaces the plan', () => {

@@ -35,6 +35,7 @@ import {
   type ToolCallRecord,
 } from '@sofee/core';
 import { SvelteMap, SvelteSet } from 'svelte/reactivity';
+import { ApiError } from './api.js';
 import { isMockAssistant } from './assistant-mode.js';
 import { getLocale, t } from './i18n.svelte.js';
 import { models } from './models.svelte.js';
@@ -1224,7 +1225,14 @@ export class AppState {
             uploading: false,
           }),
         )
-        .catch(() => this.#finishAttachment(id, { uploading: false, error: true }));
+        .catch((error: unknown) =>
+          this.#finishAttachment(id, {
+            uploading: false,
+            error: true,
+            // 413: the server's upload limit; any other failure has no reason worth showing.
+            ...(error instanceof ApiError && error.status === 413 ? { errorReason: 'tooLarge' as const } : {}),
+          }),
+        );
     }
   }
 

@@ -101,6 +101,7 @@ export type {
   RunFailure,
 } from './agent/run-activity.js';
 export { createRunActivity, applyRunEvent } from './agent/run-activity.js';
+export { translateAdminMessage } from './admin/messages.js';
 
 // Pure helpers over run view state (roadmap U2, U5, U16, U18)
 export type {

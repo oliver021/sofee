@@ -1,3 +1,5 @@
+import { translateAdminMessage } from '@sofee/core';
+
 let csrf: string | null = null;
 
 export function setCsrfToken(token: string | null): void {
@@ -63,7 +65,7 @@ function detailMessage(detail: unknown, status: number): string {
               .filter((part: unknown) => typeof part === 'string' && part !== 'body')
               .join('.')
           : '';
-      if (msg) parts.push(loc ? `${loc}: ${msg}` : msg);
+      if (msg) parts.push(loc ? `${loc}: ${translateAdminMessage(msg)}` : translateAdminMessage(msg));
     }
     if (parts.length > 0) return parts.join(' · ');
   }
@@ -71,19 +73,23 @@ function detailMessage(detail: unknown, status: number): string {
 }
 
 export async function api<T>(path: string, options: ApiOptions = {}): Promise<T> {
-  const response = await fetch(`/api/v1${path}`, {
-    method: options.method ?? 'GET',
-    headers: buildHeaders(options),
-    body: serializeBody(options.body),
-    credentials: 'same-origin',
-  });
+  let response: Response;
+  try {
+    response = await fetch(`/api/v1${path}`, {
+      method: options.method ?? 'GET',
+      headers: buildHeaders(options),
+      body: serializeBody(options.body),
+      credentials: 'same-origin',
+    });
+  } catch (error) {
+    // `fetch` rejects when the server cannot be reached; the browser's own text is English.
+    throw new ApiError(0, translateAdminMessage(error instanceof Error && error.message ? error.message : 'Failed to fetch'));
+  }
 
-  if (response.status === 401) {
+  if (response.status === 401 && path !== '/auth/login') {
     // Expired/revoked session → drop the UI back to the login screen. The login endpoint
-    // itself returns 401 for bad credentials and must not trigger this reset.
-    if (path !== '/auth/login') {
-      unauthorizedHandler?.();
-    }
+    // itself returns 401 for bad credentials: that one shows its own message below.
+    unauthorizedHandler?.();
     throw new ApiError(401, 'Sesión no válida');
   }
 
@@ -93,7 +99,7 @@ export async function api<T>(path: string, options: ApiOptions = {}): Promise<T>
       typeof detail === 'object' && detail !== null && 'detail' in detail ? detail.detail : null,
       response.status,
     );
-    throw new ApiError(response.status, message);
+    throw new ApiError(response.status, translateAdminMessage(message));
   }
 
   // 202 (cancel) and 204 may come with an empty body; only parse when there is one.

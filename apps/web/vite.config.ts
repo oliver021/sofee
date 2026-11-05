@@ -20,6 +20,16 @@ export default defineConfig({
       '/api': {
         target: 'http://localhost:8000',
         changeOrigin: true,
+        // With the API down the proxy answers 500, which reads as a bug in Sofee. A reverse proxy
+        // in production says 502; do the same so the app can tell "unreachable" from "broken".
+        configure: (proxy) => {
+          proxy.on('error', (_error, _request, response) => {
+            if ('writeHead' in response && !response.headersSent) {
+              response.writeHead(502, { 'Content-Type': 'application/json' });
+              response.end(JSON.stringify({ detail: 'upstream_unreachable' }));
+            }
+          });
+        },
       },
     },
   },

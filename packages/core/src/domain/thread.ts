@@ -99,6 +99,8 @@ export interface AttachmentRecord {
   readonly url?: string;
   readonly uploading?: boolean;
   readonly error?: boolean;
+  /** Why the upload failed, when the server said so (413 → the file is over the size limit). */
+  readonly errorReason?: 'tooLarge';
 }
 
 /** `crypto.randomUUID` is a standard global in both browsers and Node 19+ — no dependency

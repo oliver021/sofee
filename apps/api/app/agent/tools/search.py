@@ -51,7 +51,7 @@ def build_search_tools(*, max_searches: int, web_search: bool) -> list[BaseTool]
         refused = claim(runtime)
         if refused is not None:
             return refused
-        runtime.stream_writer({"type": "status", "text": "Buscando en la documentación del equipo"})
+        runtime.stream_writer({"type": "status", "text": "Buscando en la documentación del equipo", "key": "searching_docs"})
         wanted = _clamp(limit, 5)
         async with async_session_factory() as db:
             passages = await retrieve(db, query[:_QUERY_CAP], limit=wanted)
@@ -84,7 +84,7 @@ def build_search_tools(*, max_searches: int, web_search: bool) -> list[BaseTool]
         refused = claim(runtime)
         if refused is not None:
             return refused
-        runtime.stream_writer({"type": "status", "text": "Buscando en la web"})
+        runtime.stream_writer({"type": "status", "text": "Buscando en la web", "key": "searching_web"})
         async with async_session_factory() as db:
             api_key = await active_secret(db, TAVILY)
         if api_key is None:

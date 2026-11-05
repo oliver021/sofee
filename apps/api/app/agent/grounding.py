@@ -112,7 +112,7 @@ class GroundingMiddleware(AgentMiddleware):
         if api_key is None:
             return ""
         registry.searches += 1
-        request.runtime.stream_writer({"type": "status", "text": "Buscando en la web"})
+        request.runtime.stream_writer({"type": "status", "text": "Buscando en la web", "key": "searching_web"})
         query = await _web_query(request, question)
         try:
             results = await tavily_search(api_key, query, max_results=_WEB_RESULTS)

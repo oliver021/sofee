@@ -79,6 +79,8 @@ export interface RunActivity {
   readonly status: RunStatus;
   /** The latest `status` event's text, e.g. "Leyendo deploy.md…". Empty once the run ends. */
   readonly statusText: string;
+  /** The latest `status` event's key, when the server sent one. Empty otherwise. */
+  readonly statusKey: string;
   readonly todos: readonly RunTodo[];
   readonly tools: readonly RunTool[];
   readonly subagents: readonly RunSubagent[];
@@ -104,6 +106,7 @@ export function createRunActivity(
     runId,
     status,
     statusText: '',
+    statusKey: '',
     todos: [],
     tools: [],
     subagents: [],
@@ -152,7 +155,7 @@ export function applyRunEvent(
         startedAt: activity.startedAt ?? at,
       };
     case 'status':
-      return { ...resumed(activity), statusText: event.payload.text };
+      return { ...resumed(activity), statusText: event.payload.text, statusKey: event.payload.key ?? '' };
     case 'message.delta':
       return resumed(activity);
     case 'todos.updated':
@@ -237,6 +240,7 @@ export function applyRunEvent(
         ...activity,
         status: 'interrupted',
         statusText: '',
+    statusKey: '',
         todos: event.payload.todos,
         interrupt: {
           interruptId: event.payload.interrupt_id,
@@ -279,6 +283,7 @@ function finish(
     ...patch,
     status,
     statusText: '',
+    statusKey: '',
     interrupt: null,
     finishedAt: activity.finishedAt ?? at,
   };

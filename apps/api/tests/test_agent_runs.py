@@ -820,15 +820,23 @@ async def test_open_stream_does_not_hold_a_db_connection(client, use_model):
             message = await asyncio.wait_for(sent.get(), timeout=5)
             if message["type"] == "http.response.body":
                 body += message.get("body", b"")
-        async with async_session_factory() as db:
-            idle = (
-                await db.execute(
-                    text(
-                        "SELECT count(*) FROM pg_stat_activity "
-                        "WHERE datname = current_database() AND state = 'idle in transaction'"
+        # El ejecutor abre transacciones de milisegundos al guardar cada evento, y una consulta
+        # puede caer justo en una. Lo que importa es que ninguna se quede abierta mientras el
+        # SSE sigue conectado: se reintenta durante un segundo.
+        idle = 1
+        for _ in range(10):
+            async with async_session_factory() as db:
+                idle = (
+                    await db.execute(
+                        text(
+                            "SELECT count(*) FROM pg_stat_activity "
+                            "WHERE datname = current_database() AND state = 'idle in transaction'"
+                        )
                     )
-                )
-            ).scalar_one()
+                ).scalar_one()
+            if idle == 0:
+                break
+            await asyncio.sleep(0.1)
         assert idle == 0
     finally:
         disconnect.set()

@@ -16,7 +16,10 @@ export type RunErrorCode =
   | 'quota_exceeded'
   | 'agent_disabled'
   | 'timeout'
-  | 'internal';
+  | 'internal'
+  // Client-side only: the request never reached the server / a reply is already running.
+  | 'network'
+  | 'busy';
 
 export const RUN_ERROR_CODES: readonly RunErrorCode[] = [
   'model_unavailable',
@@ -26,6 +29,8 @@ export const RUN_ERROR_CODES: readonly RunErrorCode[] = [
   'agent_disabled',
   'timeout',
   'internal',
+  'network',
+  'busy',
 ];
 
 /** A run's lifecycle as the backend records it (`agent_runs.status`). */
@@ -47,6 +52,8 @@ export interface RunStartedPayload {
 
 export interface StatusPayload {
   readonly text: string;
+  /** Stable id of the status (`searching_docs`, `searching_web`) so the UI can translate it; `text` is the fallback. */
+  readonly key?: string;
 }
 
 export interface MessageDeltaPayload {

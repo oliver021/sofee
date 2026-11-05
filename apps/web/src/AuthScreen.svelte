@@ -4,7 +4,7 @@
   HTTP statuses to translated copy so the backend's English `detail` never reaches the user.
 -->
 <script lang="ts">
-  import { ApiError } from './lib/api.js';
+  import { authErrorKey } from './lib/auth-errors.js';
   import { auth } from './lib/auth.svelte.js';
   import { t } from './lib/i18n.svelte.js';
 
@@ -16,16 +16,6 @@
   let displayName = $state('');
   let busy = $state(false);
   let error = $state<string | null>(null);
-
-  function messageFor(err: unknown): string {
-    if (err instanceof ApiError) {
-      if (err.status === 401) return t('auth.errorInvalidCredentials');
-      if (err.status === 409) return t('auth.errorEmailTaken');
-      if (err.status === 400) return t('auth.errorWeakPassword');
-      if (err.status === 429) return t('auth.errorTooMany');
-    }
-    return t('auth.errorGeneric');
-  }
 
   function switchMode(next: Mode): void {
     mode = next;
@@ -44,7 +34,7 @@
         await auth.register(email, password, displayName);
       }
     } catch (err) {
-      error = messageFor(err);
+      error = t(authErrorKey(err));
     } finally {
       busy = false;
     }
