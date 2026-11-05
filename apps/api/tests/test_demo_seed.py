@@ -4,6 +4,8 @@ El proveedor y la prueba de herramientas son falsos. Las claves de estos tests s
 que solo existen dentro del test.
 """
 
+import re
+
 import pytest
 from sqlalchemy import func, select
 
@@ -13,6 +15,7 @@ from app.db import async_session_factory
 from app.demo_seed import (
     ADMIN_EMAIL,
     DEMO_KB_DIR,
+    DEMO_KB_DIRS,
     DEMO_STARTERS,
     USER_EMAIL,
     DemoSeedError,
@@ -95,8 +98,8 @@ async def test_seed_without_provider_creates_users_knowledge_profiles_and_starte
     assert await _count(Provider) == 0
 
     # El agente lee /kb/ del store, no la BD: cada documento tiene su copia.
-    item = store.get(("kb",), "/despliegue-de-un-servicio.md")
-    assert item is not None and item.value["content"].startswith("# Cómo se despliega")
+    item = store.get(("kb",), "/deploying-a-service.md")
+    assert item is not None and item.value["content"].startswith("# How a service is deployed")
 
     # Las preguntas llegan al cliente por el endpoint real, con la cuenta de la demo.
     login = await client.post("/api/v1/auth/login", json={"email": USER_EMAIL, "password": PASSWORD_ENV["SOFEE_DEMO_USER_PASSWORD"]})
@@ -138,14 +141,14 @@ async def test_a_document_the_admin_retired_stays_retired_and_out_of_the_store(c
     await seed_demo(store, env=PASSWORD_ENV)
     async with async_session_factory() as db:
         document = (
-            await db.execute(select(KbDocument).where(KbDocument.slug == "glosario"))
+            await db.execute(select(KbDocument).where(KbDocument.slug == "glossary"))
         ).scalar_one()
         document.is_enabled = False
         await db.commit()
 
     await seed_demo(store, env=PASSWORD_ENV)
 
-    assert store.get(("kb",), "/glosario.md") is None
+    assert store.get(("kb",), "/glossary.md") is None
     async with async_session_factory() as db:
         assert (await db.get(KbDocument, document.id)).is_enabled is False
 
@@ -230,3 +233,23 @@ async def test_unknown_provider_kind_and_missing_base_url_are_rejected():
             store,
             env={"SOFEE_DEMO_PROVIDER_KIND": "openai_compatible", "SOFEE_DEMO_API_KEY": "k", "SOFEE_DEMO_MAIN_MODEL": "m"},
         )
+
+
+async def test_the_knowledge_base_can_be_seeded_in_spanish_and_rejects_unknown_locales(client):
+    store = get_agent_storage().store
+    result = await seed_demo(store, env={**PASSWORD_ENV, "SOFEE_DEMO_KB_LOCALE": "es"})
+    assert result.kb_documents == len(sorted(DEMO_KB_DIRS["es"].glob("*.md")))
+    item = store.get(("kb",), "/despliegue-de-un-servicio.md")
+    assert item is not None and item.value["content"].startswith("# Cómo se despliega")
+
+    with pytest.raises(DemoSeedError, match="SOFEE_DEMO_KB_LOCALE"):
+        await seed_demo(store, env={**PASSWORD_ENV, "SOFEE_DEMO_KB_LOCALE": "fr"})
+
+
+def test_both_knowledge_bases_have_the_same_documents_and_no_dangling_links():
+    english = {path.name for path in DEMO_KB_DIRS["en"].glob("*.md")}
+    spanish = {path.name for path in DEMO_KB_DIRS["es"].glob("*.md")}
+    assert len(english) == len(spanish) == 14
+    for path in DEMO_KB_DIRS["en"].glob("*.md"):
+        for link in re.findall(r"\]\(([^)#]+\.md)\)", path.read_text()):
+            assert link in english, f"{path.name} links to a missing document: {link}"

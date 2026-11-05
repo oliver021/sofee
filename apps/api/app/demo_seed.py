@@ -3,7 +3,8 @@
 Idempotente: cada paso comprueba si ya está hecho y no pisa lo que el admin haya cambiado.
 - Usuarios de la demo (admin y regular). Si `SOFEE_DEMO_ADMIN_PASSWORD` o
   `SOFEE_DEMO_USER_PASSWORD` no están, la contraseña se genera y se devuelve una sola vez.
-- Base de conocimiento desde `demo/kb/*.md`, con el mismo servicio que el admin: `kb_documents`
+- Base de conocimiento desde `demo/kb-en/*.md` (en inglés; `SOFEE_DEMO_KB_LOCALE=es` usa `demo/kb/`),
+  con el mismo servicio que el admin: `kb_documents`
   y su copia en el store, que es lo que lee el agente en `/kb/`.
 - Versión 1 de cada perfil de agente, tomada de los defaults de código.
 - Preguntas de arranque por modo e idioma, si el ajuste `starters` no existe.
@@ -50,7 +51,11 @@ from .services.knowledge import kb_path, slugify, title_for, unique_slug
 from .services.providers import create_credential, get_active_credential
 from .services.rag import embeddings_enabled, index_document_safely
 
-DEMO_KB_DIR = Path(__file__).resolve().parents[1] / "demo" / "kb"
+_DEMO_DIR = Path(__file__).resolve().parents[1] / "demo"
+# Los mismos 14 documentos en inglés (por defecto) y en español: `SOFEE_DEMO_KB_LOCALE=en|es`.
+DEMO_KB_DIRS = {"en": _DEMO_DIR / "kb-en", "es": _DEMO_DIR / "kb"}
+DEFAULT_KB_LOCALE = "en"
+DEMO_KB_DIR = DEMO_KB_DIRS[DEFAULT_KB_LOCALE]
 ADMIN_EMAIL = "admin@sofee.demo"
 USER_EMAIL = "usuario@sofee.demo"
 PROVIDER_NAME = "Proveedor de la demo"
@@ -150,7 +155,7 @@ async def seed_demo(
     environment = os.environ if env is None else env
     provider = _provider_settings(environment)
     tavily_key = _env_value(environment, "SOFEE_DEMO_TAVILY_API_KEY")
-    documents = _demo_documents()
+    documents = _demo_documents(environment)
 
     result = DemoSeedResult(kb_documents=len(documents))
     if provider is None:
@@ -236,10 +241,14 @@ def _context_window(environment: Mapping[str, str]) -> int:
     return int(raw)
 
 
-def _demo_documents() -> list[tuple[str, bytes]]:
-    paths = sorted(DEMO_KB_DIR.glob("*.md"))
+def _demo_documents(environment: Mapping[str, str]) -> list[tuple[str, bytes]]:
+    locale = _env_value(environment, "SOFEE_DEMO_KB_LOCALE") or DEFAULT_KB_LOCALE
+    if locale not in DEMO_KB_DIRS:
+        raise DemoSeedError(f"SOFEE_DEMO_KB_LOCALE no es válido. Valores: {', '.join(DEMO_KB_DIRS)}")
+    directory = DEMO_KB_DIRS[locale]
+    paths = sorted(directory.glob("*.md"))
     if not paths:
-        raise DemoSeedError(f"No hay documentos de demo en {DEMO_KB_DIR}")
+        raise DemoSeedError(f"No hay documentos de demo en {directory}")
     return [(path.name, path.read_bytes()) for path in paths]
 
 
@@ -434,6 +443,7 @@ __all__ = [
     "ADMIN_EMAIL",
     "CATALOG_SLUG",
     "DEMO_KB_DIR",
+    "DEMO_KB_DIRS",
     "DEMO_STARTERS",
     "USER_EMAIL",
     "DemoSeedError",
