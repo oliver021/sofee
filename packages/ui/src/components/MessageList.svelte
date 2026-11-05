@@ -19,7 +19,7 @@
   import { SvelteMap } from 'svelte/reactivity';
   import type { ScrollController, ScrollInstruction, ScrollMetrics } from '@sofee/core';
   import type { Translate } from '@sofee/core';
-  import { computeVirtualWindow } from '@sofee/core';
+  import { computeVirtualWindow, emptyThreadScrollTop } from '@sofee/core';
   import JumpToLatestButton from './JumpToLatestButton.svelte';
   import { scrollbars } from '../actions/scrollbars.js';
 
@@ -193,6 +193,15 @@
   export function notifyStreamSettled(): void {
     controller.notifyStreamSettled();
   }
+
+  // A new chat reuses the container the previous conversation left scrolled: show its empty
+  // state from the top instead of leaving a blank canvas.
+  $effect(() => {
+    const target = emptyThreadScrollTop(items.length, viewportEl?.scrollTop ?? 0);
+    if (target === null || !viewportEl) return;
+    viewportEl.scrollTop = target;
+    scrollTop = target;
+  });
 
   $effect(() => {
     if (!contentEl || !viewportEl) return;
