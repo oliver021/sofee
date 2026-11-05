@@ -142,10 +142,18 @@
       transform var(--motion-menu-duration) var(--motion-menu-easing);
   }
 
+  /* Keyboard focus only (:focus-visible), not :focus-within: a mouse click or a focus restore
+     after a menu/dialog closes leaves the button focused, which kept the tooltip stuck open. */
   .host:hover .tooltip,
-  .host:focus-within .tooltip {
+  .host:has(.icon-button:focus-visible) .tooltip {
     opacity: 1;
     transform: scale(1);
+  }
+
+  /* A trigger that has opened its menu/popup hides its own tooltip while that stays open. */
+  .host:has(.icon-button[aria-expanded='true']) .tooltip {
+    opacity: 0;
+    transform: scale(0.96);
   }
 
   .tooltip[data-side='right'] {

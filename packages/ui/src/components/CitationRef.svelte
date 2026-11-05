@@ -129,8 +129,9 @@
     transition: opacity var(--motion-menu-duration) var(--motion-menu-easing);
   }
 
+  /* Keyboard focus only: a click leaves the button focused and kept the preview stuck open. */
   .citation-host:hover .citation-preview,
-  .citation-host:focus-within .citation-preview {
+  .citation-host:has(.citation-ref:focus-visible) .citation-preview {
     opacity: 1;
   }
 
