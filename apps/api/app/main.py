@@ -34,12 +34,14 @@ from .config import settings
 # script-src 'unsafe-inline' es necesario por el snippet anti-flash de paleta en
 # index.html (apps/admin); para endurecerlo, setear CONTENT_SECURITY_POLICY con
 # nonces/hashes inline.
+# La web (apps/web) carga la tipografía de la paleta activa desde Google Fonts (design-system.md §4):
+# solo se admiten esa hoja de estilos y sus ficheros de fuente, nada más de terceros.
 DEFAULT_CSP = (
     "default-src 'self'; "
     "script-src 'self' 'unsafe-inline'; "
-    "style-src 'self' 'unsafe-inline'; "
+    "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
     "img-src 'self' data: blob:; "
-    "font-src 'self' data:; "
+    "font-src 'self' data: https://fonts.gstatic.com; "
     "connect-src 'self'; "
     "object-src 'none'; "
     "frame-ancestors 'none'; "

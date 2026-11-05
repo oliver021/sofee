@@ -45,3 +45,25 @@ async def test_security_headers_on_error_responses():
         resp = await c.get("/api/v1/me")
     assert resp.status_code == 401
     assert resp.headers["x-content-type-options"] == "nosniff"
+
+async def test_default_csp_admits_google_fonts_and_no_other_third_party():
+    """La web carga su tipografía de Google Fonts: solo esa hoja de estilos y sus ficheros."""
+    async with _client(create_app()) as c:
+        resp = await c.get("/healthz")
+    directives = {
+        part.strip().split(" ")[0]: part.strip().split(" ")[1:]
+        for part in resp.headers["content-security-policy"].split(";")
+        if part.strip()
+    }
+    assert "https://fonts.googleapis.com" in directives["style-src"]
+    assert "https://fonts.gstatic.com" in directives["font-src"]
+    third_party = {
+        source
+        for sources in directives.values()
+        for source in sources
+        if source.startswith("http")
+    }
+    assert third_party == {"https://fonts.googleapis.com", "https://fonts.gstatic.com"}
+    # Los scripts y las conexiones siguen siendo solo del mismo origen.
+    assert not any(s.startswith("http") for s in directives["script-src"])
+    assert directives["connect-src"] == ["'self'"]

@@ -128,6 +128,9 @@ python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().d
   `Content-Security-Policy`) las emite el middleware de la API también a `/` y `/admin`.
   Si se quiere endurecer la CSP, setear `CONTENT_SECURITY_POLICY` con hashes/nonces
   del snippet inline del panel (la CSP por defecto usa `'unsafe-inline'` por ese snippet).
+  La CSP por defecto admite además `https://fonts.googleapis.com` (hoja de estilos) y
+  `https://fonts.gstatic.com` (ficheros) porque la web carga de ahí la tipografía de su paleta; no admite
+  ningún otro origen externo.
 - **`TRUSTED_PROXIES` debe contener la IP del proxy** para que el rate limit y la
   auditoría usen la IP real del cliente en vez de la del proxy.
 - Healthcheck del orquestador: `GET /healthz` → 200 `{"status":"ok"}`.
