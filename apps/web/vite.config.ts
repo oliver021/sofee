@@ -1,5 +1,6 @@
 import { defineConfig } from 'vite';
 import { svelte } from '@sveltejs/vite-plugin-svelte';
+import rootPkg from '../../package.json' with { type: 'json' };
 
 // Plain Vite + Svelte — no SvelteKit. Workspace packages (@sofee/*) ship their TypeScript/
 // Svelte source directly (see each package.json's "exports"), so Vite compiles them as part of
@@ -7,6 +8,10 @@ import { svelte } from '@sveltejs/vite-plugin-svelte';
 // except @sofee/tokens' generated CSS (wired into predev/prebuild).
 export default defineConfig({
   plugins: [svelte()],
+  define: {
+    // About > Version shows the workspace package version, not a hand-copied literal.
+    __APP_VERSION__: JSON.stringify(rootPkg.version),
+  },
   server: {
     port: 5173,
     // Same-origin in every environment (decision 3): production is served by apps/api at /,

@@ -12,6 +12,9 @@ export type {
   ToolRunView,
   AgentFileView,
   AgentFilePreview,
+  SettingsSection,
+  SettingsPalette,
+  SettingsUser,
 } from './types.js';
 export { scrollbars, type ScrollbarsParams } from './actions/scrollbars.js';
 export {

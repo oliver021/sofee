@@ -37,7 +37,7 @@ export function scrollbars(node: HTMLElement, params: ScrollbarsParams = {}) {
   );
 
   return {
-    update(next: ScrollbarsParams): void {
+    update(next: ScrollbarsParams = {}): void {
       instance.options({
         scrollbars: {
           autoHide: next.autoHide ?? 'scroll',

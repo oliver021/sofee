@@ -5,9 +5,15 @@
   backdrop rather than edge-anchored — these are one-off actions/references, not the persistent
   browsing panels ux-foundations.md §2.4 is about, so there is no "never push the canvas"
   constraint to preserve here.
+
+  `size="lg"` is the two-pane Settings layout: a fixed-height shell whose own body scrolls
+  instead of the whole dialog, plus a visible close button. The default `md` keeps every other
+  dialog on the original 440px card.
 -->
 <script lang="ts">
   import type { Snippet } from 'svelte';
+  import { IconClose } from '@sofee/icons';
+  import IconButton from './IconButton.svelte';
   import { scrollbars } from '../actions/scrollbars.js';
 
   interface Props {
@@ -15,20 +21,38 @@
     triggerEl?: HTMLElement | null;
     onClose: () => void;
     children: Snippet;
+    /** `lg` is the 960×720 Settings shell; `md` is the original 440px card. */
+    size?: 'md' | 'lg';
+    /** Show an explicit close button in the header. Settings passes true so the large
+     * surface has an always-visible way out. */
+    showClose?: boolean;
+    closeLabel?: string;
   }
 
-  let { titleText, triggerEl = null, onClose, children }: Props = $props();
+  let {
+    titleText,
+    triggerEl = null,
+    onClose,
+    children,
+    size = 'md',
+    showClose = false,
+    closeLabel = '',
+  }: Props = $props();
 
   let dialogEl: HTMLDivElement | null = $state(null);
   let headingId = `dialog-heading-${Math.random().toString(36).slice(2, 8)}`;
 
   function focusableElements(): HTMLElement[] {
     if (!dialogEl) return [];
-    return Array.from(
+    const elements = Array.from(
       dialogEl.querySelectorAll<HTMLElement>(
         'a[href], button:not(:disabled), [tabindex]:not([tabindex="-1"]), input:not(:disabled), select, textarea',
       ),
     );
+    // Settings renders every category as a `hidden` tabpanel. Those controls stay in the DOM,
+    // so without this filter the trap's "last" element could be in an invisible panel and
+    // forward Tab would escape the modal.
+    return elements.filter((element) => element.getClientRects().length > 0);
   }
 
   function close(): void {
@@ -62,8 +86,9 @@
 
   $effect(() => {
     queueMicrotask(() => {
+      const preferred = dialogEl?.querySelector<HTMLElement>('[data-autofocus]');
       const focusable = focusableElements();
-      (focusable[0] ?? dialogEl)?.focus();
+      (preferred ?? focusable[0] ?? dialogEl)?.focus();
     });
   });
 </script>
@@ -74,14 +99,20 @@
   <div
     bind:this={dialogEl}
     class="dialog"
-    use:scrollbars={{ autoHide: 'leave' }}
+    class:lg={size === 'lg'}
+    use:scrollbars={size === 'lg' ? undefined : { autoHide: 'leave' }}
     role="dialog"
     aria-modal="true"
     aria-labelledby={headingId}
     tabindex="-1"
     onkeydown={onKeydown}
   >
-    <h2 id={headingId}>{titleText}</h2>
+    <div class="dialog-header">
+      <h2 id={headingId}>{titleText}</h2>
+      {#if showClose}
+        <IconButton icon={IconClose} label={closeLabel} tooltip={closeLabel} onclick={close} />
+      {/if}
+    </div>
     {@render children()}
   </div>
 </div>
@@ -110,11 +141,48 @@
     box-shadow: var(--p-shadow-panel);
   }
 
-  .dialog h2 {
+  .dialog.lg {
+    width: min(960px, 100%);
+    height: min(720px, 86vh);
+    max-height: none;
+    padding: 0;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+  }
+
+  .dialog-header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: var(--space-3);
     margin: 0 0 var(--space-4);
+  }
+
+  .dialog.lg .dialog-header {
+    align-items: center;
+    flex: none;
+    margin: 0;
+    padding: var(--space-3) var(--space-3) var(--space-3) var(--space-5);
+    border-bottom: 1px solid var(--p-line);
+  }
+
+  .dialog h2 {
+    margin: 0;
     font-family: var(--p-display);
     font-size: 18px;
     color: var(--p-ink);
+  }
+
+  @media (max-width: 560px) {
+    .backdrop {
+      padding: var(--space-2);
+    }
+
+    .dialog.lg {
+      width: 100%;
+      height: min(720px, 94vh);
+    }
   }
 
   @keyframes dialog-fade {

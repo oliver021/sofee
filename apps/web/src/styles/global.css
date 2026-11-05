@@ -45,6 +45,25 @@ a {
   font-variant-numeric: tabular-nums;
 }
 
+/* Settings > General > Motion. The token durations already collapse for a system-level
+   prefers-reduced-motion; this is the same treatment for the in-app choice, plus a blanket
+   guard for the few components whose transitions are not token-based. */
+html[data-motion='reduce'] {
+  --motion-panel-duration: 1ms;
+  --motion-menu-duration: 1ms;
+  --motion-focus-duration: 1ms;
+  --motion-jump-duration: 1ms;
+}
+
+html[data-motion='reduce'] *,
+html[data-motion='reduce'] *::before,
+html[data-motion='reduce'] *::after {
+  animation-duration: 0.01ms !important;
+  animation-iteration-count: 1 !important;
+  transition-duration: 0.01ms !important;
+  scroll-behavior: auto !important;
+}
+
 /* Global safety net; most interactive components already set this themselves so the ring
    matches their own border-radius, but anything missed still gets a visible, on-brand focus
    ring rather than the browser default (ux-foundations.md §8: "Focus: Always visible, never

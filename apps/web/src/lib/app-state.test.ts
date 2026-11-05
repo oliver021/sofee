@@ -166,6 +166,31 @@ describe('agent send', () => {
     expect(appState.activityByMessage[reply?.id ?? '']?.status).toBe('completed');
   });
 
+  it('upserts a thread that was only hydrated locally before naming it in the run', async () => {
+    runClient.createRun.mockResolvedValue({
+      run_id: 'run-1',
+      assistant_message_id: 'x',
+      status: 'queued',
+    });
+    const threadChanged = vi.fn();
+    appState.setPersistence({
+      threadChanged,
+      messageChanged: () => undefined,
+      messageRemoved: () => undefined,
+      threadSettled: async () => undefined,
+    });
+    // A fresh account has no conversations: the empty canvas is created without being persisted.
+    appState.hydrateThreads([]);
+    const thread = appState.activeThread;
+    expect(threadChanged).not.toHaveBeenCalled();
+
+    appState.sendMessage(thread.id, 'Hola', []);
+    await settle();
+
+    expect(threadChanged).toHaveBeenCalledWith(expect.objectContaining({ id: thread.id }));
+    expect(runClient.createRun).toHaveBeenCalled();
+  });
+
   it('removes the reply and marks the user message with the quota reset when the run is refused', async () => {
     runClient.createRun.mockRejectedValue(
       new ApiError(429, 'quota_exceeded', {

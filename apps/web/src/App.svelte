@@ -13,6 +13,7 @@
     type ContextMarkKind,
     type Thread,
   } from '@sofee/core';
+  import { DEFAULT_PALETTE, type PaletteId } from '@sofee/tokens';
   import {
     AgentFiles,
     CommandPalette,
@@ -39,6 +40,7 @@
     SubagentCards,
     ToolTimeline,
     type MenuItemConfig,
+    type SettingsSection,
     type ToolbarItem,
   } from '@sofee/ui';
   import {
@@ -70,6 +72,7 @@
   import AuthScreen from './AuthScreen.svelte';
   import { auth, type AuthStatus } from './lib/auth.svelte.js';
   import { models } from './lib/models.svelte.js';
+  import { preferences } from './lib/preferences.svelte.js';
   import { uploadFile } from './lib/api.js';
   import {
     loadConversations,
@@ -84,9 +87,106 @@
   let composerRef: Composer | null = $state(null);
   let copiedMessageId: string | null = $state(null);
 
+  const appVersion = __APP_VERSION__;
+  const sourceUrl = 'https://github.com/oliver021/sofee';
+
+  let settingsSection = $state<SettingsSection>('general');
+  let notificationPermission = $state<'default' | 'denied' | 'granted' | 'unsupported'>('default');
+  let settingsUser = $derived(
+    auth.user
+      ? {
+          displayName: auth.user.display_name,
+          email: auth.user.email,
+          role: auth.user.role,
+        }
+      : null,
+  );
+  let hasConversations = $derived(
+    appState.threads.some((thread) => thread.messages.length > 0),
+  );
+  let paletteId = $derived(getPaletteId());
+  let paletteOptions = $derived(listPalettes());
+
   onMount(() => {
+    notificationPermission =
+      typeof Notification === 'undefined' ? 'unsupported' : Notification.permission;
     void auth.bootstrap();
   });
+
+  function openSettings(
+    section: SettingsSection = 'general',
+    triggerEl: HTMLElement | null = null,
+  ): void {
+    appState.closeMenusAndPanels();
+    settingsSection = section;
+    appState.settingsTriggerEl = triggerEl;
+    appState.settingsOpen = true;
+  }
+
+  async function handleNotificationToggle(value: boolean): Promise<void> {
+    if (!value) {
+      preferences.set('notifyOnComplete', false);
+      return;
+    }
+    if (typeof Notification === 'undefined') {
+      notificationPermission = 'unsupported';
+      return;
+    }
+    // requestPermission must run from the click itself; awaiting it is fine, but it cannot be
+    // deferred behind another async step or the browser drops the user gesture.
+    let permission = Notification.permission;
+    if (permission === 'default') permission = await Notification.requestPermission();
+    notificationPermission = permission;
+    preferences.set('notifyOnComplete', permission === 'granted');
+  }
+
+  async function requestNotificationPermission(): Promise<void> {
+    if (typeof Notification === 'undefined') {
+      notificationPermission = 'unsupported';
+      return;
+    }
+    const permission = await Notification.requestPermission();
+    notificationPermission = permission;
+    if (permission === 'granted') preferences.set('notifyOnComplete', true);
+  }
+
+  function exportConversations(): void {
+    const payload = {
+      app: 'sofee',
+      exportedAt: new Date().toISOString(),
+      threads: appState.threads.map((thread) => ({
+        id: thread.id,
+        title: thread.title,
+        mode: thread.mode,
+        temporary: thread.isTemporary,
+        createdAt: new Date(thread.createdAt).toISOString(),
+        messages: thread.messages.map((message) => ({
+          id: message.id,
+          role: message.role,
+          status: message.status,
+          text: message.text,
+          createdAt: new Date(message.createdAt).toISOString(),
+          citations: message.citations ?? [],
+          attachmentIds: message.attachmentIds ?? [],
+        })),
+      })),
+    };
+    const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement('a');
+    anchor.href = url;
+    anchor.download = `sofee-conversations-${new Date().toISOString().slice(0, 10)}.json`;
+    document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
+    URL.revokeObjectURL(url);
+  }
+
+  function resetSettings(): void {
+    preferences.reset();
+    setPaletteId(DEFAULT_PALETTE);
+    setLocale('en');
+  }
 
   // Auth transitions drive the backend wiring: sign-in installs persistence hooks, loads the
   // user's conversations and the model catalogue; sign-out tears all of it down and resets the
@@ -124,6 +224,7 @@
   });
 
   async function handleLogout(): Promise<void> {
+    appState.settingsOpen = false;
     appState.closeMenusAndPanels();
     await auth.logout();
   }
@@ -551,11 +652,7 @@
         id: 'settings',
         label: t('menu.more.settings'),
         icon: IconSettings,
-        onActivate: () => {
-          appState.settingsTriggerEl = appState.moreMenuAnchor;
-          appState.settingsOpen = true;
-          appState.moreMenuOpen = false;
-        },
+        onActivate: () => openSettings('general', appState.moreMenuAnchor),
       },
       {
         id: 'language',
@@ -641,7 +738,7 @@
       id: 'cmd-settings',
       label: t('commandPalette.openSettings'),
       icon: IconSettings,
-      onActivate: () => (appState.settingsOpen = true),
+      onActivate: () => openSettings('general'),
     },
     {
       id: 'cmd-shortcuts',
@@ -692,6 +789,12 @@
     if (mod && event.key.toLowerCase() === 'j') {
       event.preventDefault();
       appState.activePanel = appState.activePanel === 'chats' ? null : 'chats';
+      return;
+    }
+    if (mod && event.key === ',') {
+      event.preventDefault();
+      if (appState.settingsOpen) appState.settingsOpen = false;
+      else openSettings('general');
       return;
     }
     if (mod && event.key === '/') {
@@ -876,7 +979,7 @@
               onRetry={message.status === 'error'
                 ? () => appState.retryMessage(appState.activeThreadId, message.id)
                 : undefined}
-              onChangeModel={() => (appState.settingsOpen = true)}
+              onChangeModel={() => openSettings('assistant')}
               onContinue={message.status === 'stopped'
                 ? () => appState.continueMessage(appState.activeThreadId, message.id)
                 : undefined}
@@ -909,21 +1012,21 @@
                 {/if}
               {/snippet}
               {#snippet footer()}
-                {#if sources.length > 0}
+                {#if preferences.values.showSources && sources.length > 0}
                   <SourceList
                     {sources}
                     t={tWide}
                     onOpen={(citation, trigger) => appState.showSource(citation, trigger)}
                   />
                 {/if}
-                {#if run && run.directions.length > 0}
+                {#if preferences.values.showDirections && run && run.directions.length > 0}
                   <DirectionChips
                     directions={run.directions}
                     t={tWide}
                     onPick={(text) => onStarterSelect(text)}
                   />
                 {/if}
-                {#if run && run.quiz.length > 0}
+                {#if preferences.values.showQuiz && run && run.quiz.length > 0}
                   <QuizBlock items={run.quiz} t={tWide} />
                 {/if}
               {/snippet}
@@ -942,7 +1045,7 @@
             isStreaming={appState.isActiveThreadBusy && waitingLabel === null}
             {waitingLabel}
             isTemporary={appState.activeThread.isTemporary}
-            invertSendKey={appState.invertSendKey}
+            invertSendKey={preferences.values.invertSendKey}
             pinnedSourceCount={appState.pinnedSourceCount}
             t={tWide}
             onSend={handleSend}
@@ -1109,12 +1212,41 @@
     <SettingsDialog
       t={tWide}
       triggerEl={appState.settingsTriggerEl}
-      invertSendKey={appState.invertSendKey}
+      section={settingsSection}
+      onChangeSection={(section) => (settingsSection = section)}
+      onClose={() => (appState.settingsOpen = false)}
+      invertSendKey={preferences.values.invertSendKey}
+      onChangeInvertSendKey={(value) => preferences.set('invertSendKey', value)}
+      palettes={paletteOptions}
+      selectedPaletteId={paletteId}
+      onChangePalette={(id) => setPaletteId(id as PaletteId)}
+      locale={getLocale()}
+      onChangeLocale={(next) => setLocale(next)}
+      motion={preferences.values.motion}
+      onChangeMotion={(value) => preferences.set('motion', value)}
+      defaultMode={preferences.values.defaultMode}
+      onChangeDefaultMode={(mode) => preferences.set('defaultMode', mode)}
+      showSources={preferences.values.showSources}
+      onChangeShowSources={(value) => preferences.set('showSources', value)}
+      showDirections={preferences.values.showDirections}
+      onChangeShowDirections={(value) => preferences.set('showDirections', value)}
+      showQuiz={preferences.values.showQuiz}
+      onChangeShowQuiz={(value) => preferences.set('showQuiz', value)}
       modelOptions={models.options}
       selectedModelId={models.selectedId}
-      onClose={() => (appState.settingsOpen = false)}
-      onChangeInvertSendKey={(value) => (appState.invertSendKey = value)}
       onChangeModel={(id) => models.select(id)}
+      notifyOnComplete={preferences.values.notifyOnComplete &&
+        notificationPermission === 'granted'}
+      onChangeNotifyOnComplete={(value) => void handleNotificationToggle(value)}
+      notificationPermission={notificationPermission}
+      onRequestNotificationPermission={() => void requestNotificationPermission()}
+      user={settingsUser}
+      hasConversations={hasConversations}
+      onExportConversations={exportConversations}
+      onLogout={() => void handleLogout()}
+      version={appVersion}
+      sourceUrl={sourceUrl}
+      onResetSettings={resetSettings}
     />
   {/if}
 

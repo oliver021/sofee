@@ -1,0 +1,54 @@
+# Local production-like stack: PostgreSQL + the single sofee-api image that
+# serves the API, apps/web at / and apps/admin at /admin.
+#
+#   npm run build && npm run build:admin        # the image copies both dist/
+#   docker compose -f docker-compose.stack.yml up -d --build
+#   docker compose -f docker-compose.stack.yml run --rm api migrate
+#
+# Secrets live in .env.stack (gitignored; see .env.example for the keys).
+name: sofee-stack
+
+services:
+  db:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_USER: sofee
+      POSTGRES_PASSWORD: sofee
+      POSTGRES_DB: sofee
+    volumes:
+      - sofee_stack_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U sofee -d sofee']
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  api:
+    image: sofee-api:stack
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+    env_file:
+      - .env.stack
+    ports:
+      - '8000:8000'
+    volumes:
+      - sofee_stack_storage:/apps/storage
+    depends_on:
+      db:
+        condition: service_healthy
+    healthcheck:
+      test:
+        [
+          'CMD',
+          'python',
+          '-c',
+          "import urllib.request;urllib.request.urlopen('http://127.0.0.1:8000/healthz')",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  sofee_stack_pgdata:
+  sofee_stack_storage:

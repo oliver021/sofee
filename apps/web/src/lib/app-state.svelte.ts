@@ -38,6 +38,7 @@ import { SvelteMap, SvelteSet } from 'svelte/reactivity';
 import { isMockAssistant } from './assistant-mode.js';
 import { getLocale, t } from './i18n.svelte.js';
 import { models } from './models.svelte.js';
+import { preferences } from './preferences.svelte.js';
 import {
   cancelRun,
   clearThreadContext,
@@ -116,7 +117,7 @@ function createEmptyThread(isTemporary: boolean): Thread {
     isTemporary,
     createdAt: Date.now(),
     messages: [],
-    mode: 'learn',
+    mode: preferences.values.defaultMode,
   };
 }
 
@@ -191,7 +192,6 @@ export class AppState {
   pendingTemporaryLeave = $state<(() => void) | null>(null);
 
   drafts = $state<Record<string, string>>({});
-  invertSendKey = $state(false);
 
   #mockToolCalls = $state<ToolCallRecord[]>([]);
   mcpServers = $state<McpServerRecord[]>([{ id: 'mcp-docs', name: 'docs-index', connected: true }]);
@@ -726,6 +726,9 @@ export class AppState {
     const mode = thread.mode;
     let runId: string;
     try {
+      // A thread hydrated locally (an account with no conversations yet) was never upserted, and
+      // the server writes run-owned messages, so nothing else would create it before the run.
+      this.#notifyThread(thread);
       await this.#persistence?.threadSettled(threadId);
       const userMessage = userMessageId ? this.#findMessage(threadId, userMessageId) : undefined;
       const created = await createRun(threadId, {
@@ -913,6 +916,26 @@ export class AppState {
     }
     this.#endSession(session);
     this.scrollControllerFor(session.threadId).notifyStreamSettled();
+    if (status === 'complete' && message) this.#notifyAnswerComplete(message);
+  }
+
+  /** The Notifications setting is intentionally narrow: a completed answer, this tab hidden,
+   * and permission already granted. Nothing fires when the reader is looking at the tab. */
+  #notifyAnswerComplete(message: ChatMessage): void {
+    if (!preferences.values.notifyOnComplete) return;
+    if (typeof Notification === 'undefined' || Notification.permission !== 'granted') return;
+    if (typeof document === 'undefined' || !document.hidden) return;
+    const body =
+      message.text.replace(/\s+/g, ' ').trim().slice(0, 140) ||
+      t('settings.notifications.completeFallback');
+    try {
+      new Notification(t('settings.notifications.completeTitle'), {
+        body,
+        tag: 'sofee-answer',
+      });
+    } catch {
+      // Some browsers expose the API but refuse construction outside a service worker.
+    }
   }
 
   /** The browser gave up on the stream (an HTTP error) while the run was still going. */

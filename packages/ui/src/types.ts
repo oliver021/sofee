@@ -22,6 +22,35 @@ export interface ToolbarItem {
   onActivate: (buttonEl: HTMLButtonElement) => void;
 }
 
+/** The categories in the two-pane Settings modal, in navigation order. */
+export type SettingsSection =
+  | 'general'
+  | 'assistant'
+  | 'chats'
+  | 'notifications'
+  | 'shortcuts'
+  | 'account'
+  | 'about';
+
+/** The palette shape Settings needs to draw its swatch cards. apps/web maps the token
+ * palettes into this so the component stays presentational. */
+export interface SettingsPalette {
+  readonly id: string;
+  readonly label: string;
+  readonly colors: {
+    readonly bg: string;
+    readonly surf: string;
+    readonly acc: string;
+  };
+}
+
+/** The signed-in identity, as Settings shows it. */
+export interface SettingsUser {
+  readonly displayName: string;
+  readonly email: string;
+  readonly role: 'regular' | 'admin';
+}
+
 export interface MenuItemConfig {
   id: string;
   label: string;
