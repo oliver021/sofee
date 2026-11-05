@@ -38,6 +38,7 @@ from .context import SofeeContext
 from .events import TERMINAL_EVENTS, RunEventMapper, SofeeEvent
 from .history import load_model_input
 from .knowledge import prepare_run_knowledge
+from .leaked_calls import recover_leaked_ui_calls
 from .limits import TASK_TOOL
 from .models import ModelUnavailable, ResolvedModel, resolve_chat_model
 from .persistence import get_agent_storage
@@ -358,9 +359,12 @@ class RunExecutor:
 
     async def _settle_completed(self, state: _RunState) -> None:
         state.finalizing = True
-        text, citations, hallucinated = finalize(
-            state.text.strip(), get_registry(state.run_id)
-        )
+        # Un modelo pequeño puede escribir la llamada a una herramienta de UI como texto: se
+        # recupera como el evento que habría emitido y se quita de la respuesta.
+        answer, recovered = recover_leaked_ui_calls(state.text.strip())
+        for event_type, payload in recovered:
+            await self._emit(state, event_type, payload)
+        text, citations, hallucinated = finalize(answer, get_registry(state.run_id))
         await self._settle(
             state,
             run_status="completed",
